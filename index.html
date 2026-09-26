@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprite FX Maker v2.1</title>
+<style>
+  :root{
+    --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
+    --text:#f4f7fb; --muted:#98a2b3; --accent:#7c5cff; --accent2:#20d57a;
+    --danger:#ff5e73; --warn:#ffc857;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  button,input,select{font:inherit}
+  .app{display:grid;grid-template-columns:370px 1fr;min-height:100vh}
+  .sidebar{background:var(--panel);border-right:1px solid var(--line);padding:18px;overflow:auto;max-height:100vh}
+  .workspace{display:flex;flex-direction:column;min-width:0}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+  .group{border:1px solid var(--line);border-radius:14px;padding:12px;margin:0 0 12px;background:rgba(255,255,255,.015)}
+  .group h2{font-size:13px;margin:0 0 10px;color:#dfe5ee}
+  .row{display:grid;grid-template-columns:1fr 108px;gap:10px;align-items:center;margin:8px 0}
+  .row label{font-size:12px;color:#cbd3df}
+  .row.wide{grid-template-columns:1fr}
+  input[type=number],select,input[type=text],input[type=color]{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:7px 8px}
+  input[type=color]{padding:3px;height:34px}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  input[type=file]{display:none}
+  .upload{display:block;border:1px dashed #4c5666;border-radius:11px;padding:10px;text-align:center;color:#d9e0ea;cursor:pointer;background:#12161b}
+  .upload:hover{border-color:var(--accent)}
+  .sprites{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:9px}
+  .sprite{aspect-ratio:1;border-radius:8px;border:1px solid var(--line);background:#0b0d10;position:relative;overflow:hidden}
+  .sprite img{width:100%;height:100%;object-fit:contain}
+  .sprite button{position:absolute;right:2px;top:2px;border:0;border-radius:6px;background:rgba(0,0,0,.65);color:#fff;width:20px;height:20px;padding:0;cursor:pointer}
+  .topbar{min-height:62px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:10px 18px;background:#101318;gap:10px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  button{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:10px;padding:8px 12px;cursor:pointer}
+  button:hover{filter:brightness(1.12)}
+  button.primary{background:var(--accent);border-color:transparent}
+  button.good{background:var(--accent2);border-color:transparent;color:#07140d}
+  button.danger{background:transparent;color:#ff8494;border-color:#66323a}
+  button.tiny{padding:6px 8px;font-size:11px}
+  .stage-wrap{flex:1;display:grid;place-items:center;padding:18px;overflow:auto;position:relative}
+  .stage-shell{position:relative;display:inline-block;box-shadow:0 16px 60px rgba(0,0,0,.4)}
+  canvas{display:block;max-width:min(72vw,900px);max-height:calc(100vh - 110px);background:transparent}
+  .hint{position:absolute;left:16px;bottom:14px;color:#dce3ee;background:rgba(0,0,0,.58);padding:7px 10px;border-radius:9px;font-size:11px;pointer-events:none}
+  .status{font-size:12px;color:var(--muted);text-align:right}
+  .check{display:flex;align-items:center;gap:8px;font-size:12px;color:#cbd3df;margin:8px 0}
+  .check input{accent-color:var(--accent)}
+  .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .tabs button{font-size:11px;padding:8px 5px}
+  .tabs button.active{background:var(--accent);border-color:transparent}
+  .small{font-size:11px;color:var(--muted);line-height:1.35}
+  .sep{height:1px;background:var(--line);margin:10px 0}
+  .preset-row{display:grid;grid-template-columns:1fr auto;gap:7px;margin-bottom:7px}
+  .preset-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .pill{font-size:10px;border:1px solid var(--line);border-radius:999px;padding:3px 7px;color:var(--muted);display:inline-block}
+  .inline2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media (max-width:900px){
+    .app{grid-template-columns:1fr}
+    .sidebar{border-right:0;border-bottom:1px solid var(--line);max-height:none}
+    .workspace{min-height:70vh}
+    canvas{max-width:94vw;max-height:70vh}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <h1>Sprite FX Maker v2.1</h1>
+    <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
+
+    <div class="group">
+      <h2>Пресеты</h2>
+      <div class="preset-row">
+        <select id="presetSelect"></select>
+        <button id="applyPreset" class="primary tiny">Применить</button>
+      </div>
+      <div class="preset-actions">
+        <button id="savePreset" class="tiny">Сохранить свой</button>
+        <button id="deletePreset" class="danger tiny">Удалить свой</button>
+      </div>
+      <div class="small" style="margin-top:8px">Свои пресеты сохраняются в браузере. Загруженный файл шрифта нужно выбрать снова после перезапуска страницы.</div>
+    </div>
+
+    <div class="group">
+      <h2>Спрайты эффекта</h2>
+      <label class="upload" for="spriteInput">＋ Загрузить один или несколько спрайтов</label>
+      <input id="spriteInput" type="file" accept="image/*" multiple />
+      <div id="sprites" class="sprites"></div>
+      <div class="small" style="margin-top:8px">При нескольких изображениях каждый объект получает случайный спрайт.</div>
+    </div>
+
+    <div class="group">
+      <h2>Тип эффекта</h2>
+      <div class="tabs">
+        <button id="tabFade" class="active">Душа</button>
+        <button id="tabPyramid">Пирамида</button>
+        <button id="tabBurst">Разброс</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Общие настройки</h2>
+      <div class="row"><label>Размер спрайта, px</label><input id="size" type="number" min="2" max="2000" value="150"></div>
+      <div class="row"><label>Случайный размер, %</label><input id="sizeRnd" type="number" min="0" max="100" value="15"></div>
+      <div class="check"><input id="randomRotation" type="checkbox" checked><label for="randomRotation">Случайный поворот</label></div>
+      <div class="row"><label>Макс. случайный поворот, °</label><input id="rotRnd" type="number" min="0" max="360" value="12"></div>
+      <div class="check"><input id="glowEnabled" type="checkbox"><label for="glowEnabled">Подсветка / glow объектов</label></div>
+      <div class="row"><label>Цвет подсветки</label><input id="glowColor" type="color" value="#00ff88"></div>
+      <div class="row"><label>Сила glow, px</label><input id="glowBlur" type="number" min="0" max="200" value="28"></div>
+      <div class="check"><input id="loop" type="checkbox" checked><label for="loop">Зациклить предпросмотр</label></div>
+    </div>
+
+    <div id="fadeSettings" class="group">
+      <h2>1. Появление → растворение</h2>
+      <div class="row"><label>Количество</label><input id="fadeCount" type="number" min="1" max="2000" value="12"></div>
+      <div class="row"><label>Промежуток, мс</label><input id="fadeInterval" type="number" min="0" max="10000" value="220"></div>
+      <div class="row"><label>Жизнь объекта, мс</label><input id="fadeLife" type="number" min="100" max="20000" value="1600"></div>
+      <div class="row"><label>Подъём вверх, px</label><input id="fadeRise" type="number" min="-3000" max="3000" value="220"></div>
+      <div class="row"><label>Разброс позиции, px</label><input id="fadeSpread" type="number" min="0" max="3000" value="70"></div>
+      <div class="row"><label>Плавность появления, %</label><input id="fadeInPct" type="number" min="0" max="90" value="18"></div>
+    </div>
+
+    <div id="pyramidSettings" class="group" style="display:none">
+      <h2>2. Пирамида снизу вверх</h2>
+      <div class="row"><label>Всего объектов</label><input id="pyrCount" type="number" min="1" max="10000" value="36"></div>
+      <div class="row"><label>Интервал между рядами, мс</label><input id="pyrRowInterval" type="number" min="10" max="10000" value="190"></div>
+      <div class="row"><label>Горизонтальный шаг, % размера</label><input id="pyrGapXFactor" type="number" min="20" max="200" value="95"></div>
+      <div class="row"><label>Вертикальный шаг, % размера</label><input id="pyrGapYFactor" type="number" min="20" max="200" value="82"></div>
+      <div class="row"><label>Отступ от краёв, px</label><input id="pyrMargin" type="number" min="0" max="500" value="45"></div>
+      <div class="check"><input id="pyrAutoFit" type="checkbox" checked><label for="pyrAutoFit">Автоуменьшение, чтобы всё влезало</label></div>
+      <div class="row"><label>Пауза перед улётом, мс</label><input id="pyrHold" type="number" min="0" max="10000" value="650"></div>
+      <div class="row"><label>Улёт, мс</label><input id="pyrFlyTime" type="number" min="100" max="10000" value="1100"></div>
+      <div class="row"><label>Сила улёта, px</label><input id="pyrFly" type="number" min="0" max="5000" value="700"></div>
+      <div class="row"><label>Разлёт в стороны, px</label><input id="pyrSide" type="number" min="0" max="5000" value="220"></div>
+      <div id="pyrInfo" class="small"></div>
+    </div>
+
+    <div id="burstSettings" class="group" style="display:none">
+      <h2>3. Разброс из точки</h2>
+      <div class="row"><label>Количество</label><input id="burstCount" type="number" min="1" max="5000" value="35"></div>
+      <div class="row"><label>Интервал, мс</label><input id="burstInterval" type="number" min="0" max="5000" value="25"></div>
+      <div class="row"><label>Жизнь, мс</label><input id="burstLife" type="number" min="100" max="20000" value="1800"></div>
+      <div class="row"><label>Мин. скорость, px/с</label><input id="speedMin" type="number" min="0" max="5000" value="300"></div>
+      <div class="row"><label>Макс. скорость, px/с</label><input id="speedMax" type="number" min="0" max="5000" value="950"></div>
+      <div class="row"><label>Гравитация, px/с²</label><input id="gravity" type="number" min="-5000" max="5000" value="700"></div>
+      <div class="row"><label>Вращение, °/с</label><input id="spin" type="number" min="0" max="2000" value="240"></div>
+    </div>
+
+    <div class="group">
+      <h2>Счётчик / таймер / число</h2>
+      <div class="check"><input id="counterEnabled" type="checkbox"><label for="counterEnabled">Показывать счётчик</label></div>
+      <div class="row">
+        <label>Тип</label>
+        <select id="counterMode">
+          <option value="number">Число от A до B</option>
+          <option value="seconds">Секунды</option>
+        </select>
+      </div>
+      <div class="inline2">
+        <div class="row wide"><label>Начало</label><input id="counterStart" type="number" value="0"></div>
+        <div class="row wide"><label>Конец</label><input id="counterEnd" type="number" value="10000000"></div>
+      </div>
+      <div class="row"><label>Длительность, мс</label><input id="counterDuration" type="number" min="50" max="600000" value="3500"></div>
+      <div class="row"><label>Задержка, мс</label><input id="counterDelay" type="number" min="0" max="600000" value="0"></div>
+      <div class="row"><label>Знаков после запятой</label><input id="counterDecimals" type="number" min="0" max="6" value="0"></div>
+      <div class="row">
+        <label>Анимация</label>
+        <select id="counterEase">
+          <option value="linear">Линейно</option>
+          <option value="out">Плавное торможение</option>
+          <option value="inout">Плавный старт/финиш</option>
+        </select>
+      </div>
+      <div class="check"><input id="counterGrouping" type="checkbox" checked><label for="counterGrouping">Разделители тысяч</label></div>
+      <div class="inline2">
+        <div class="row wide"><label>Префикс</label><input id="counterPrefix" type="text" value=""></div>
+        <div class="row wide"><label>Суффикс</label><input id="counterSuffix" type="text" value=""></div>
+      </div>
+      <div class="row"><label>Размер текста, px</label><input id="counterFontSize" type="number" min="6" max="1000" value="120"></div>
+      <div class="row"><label>Позиция X, %</label><input id="counterX" type="number" min="0" max="100" value="50"></div>
+      <div class="row"><label>Позиция Y, %</label><input id="counterY" type="number" min="0" max="100" value="12"></div>
+      <div class="row"><label>Цвет текста</label><input id="counterColor" type="color" value="#39ff14"></div>
+      <div class="row"><label>Цвет обводки</label><input id="counterStrokeColor" type="color" value="#000000"></div>
+      <div class="row"><label>Толщина обводки, px</label><input id="counterStrokeWidth" type="number" min="0" max="100" value="8"></div>
+      <div class="check"><input id="counterShadow" type="checkbox" checked><label for="counterShadow">Тень текста</label></div>
+      <div class="row"><label>Тень, px</label><input id="counterShadowBlur" type="number" min="0" max="100" value="10"></div>
+      <div class="row">
+        <label>Шрифт</label>
+        <select id="fontSelect">
+          <option value="Impact">Impact</option>
+          <option value="Arial Black">Arial Black</option>
+          <option value="Arial">Arial</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Georgia">Georgia</option>
+          <option value="monospace">Monospace</option>
+        </select>
+      </div>
+      <label class="upload" for="fontInput">＋ Загрузить свой шрифт TTF/OTF/WOFF</label>
+      <input id="fontInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
+      <div id="fontStatus" class="small" style="margin-top:7px">Пользовательский шрифт не загружен.</div>
+    </div>
+
+    <div class="group">
+      <h2>Холст и экспорт</h2>
+      <div class="row">
+        <label>Формат</label>
+        <select id="format">
+          <option value="1080x1920">9:16 — 1080×1920</option>
+          <option value="1920x1080">16:9 — 1920×1080</option>
+          <option value="1080x1080">1:1 — 1080×1080</option>
+          <option value="720x1280">9:16 — 720×1280</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>FPS экспорта</label>
+        <select id="exportFps">
+          <option value="60">60 FPS</option>
+          <option value="30">30 FPS</option>
+          <option value="24">24 FPS</option>
+        </select>
+      </div>
+      <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
+      <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.1: экспорт пишет кадры последовательно и блокирует preview на время записи — без перемешивания кадров.</div>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <div class="topbar">
+      <div class="controls">
+        <button id="restart" class="primary">▶ С начала</button>
+        <button id="pause">⏸ Пауза</button>
+        <button id="png">PNG кадр</button>
+        <button id="webm" class="good">Экспорт WebM</button>
+      </div>
+      <div id="status" class="status">Нет спрайтов — можно использовать только счётчик или загрузить PNG/JPG/WebP</div>
+    </div>
+    <div class="stage-wrap">
+      <div class="stage-shell">
+        <canvas id="canvas" width="1080" height="1920"></canvas>
+        <div class="hint">Клик = центр эффекта</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const canvas = $('canvas');
+  const ctx = canvas.getContext('2d', {alpha:true});
+  let mode = 'fade';
+  let sprites = [];
+  let startedAt = performance.now();
+  let paused = false;
+  let pauseAt = 0;
+  let point = {x: canvas.width/2, y: canvas.height/2};
+  let seed = 1;
+  let exportInProgress = false;
+  let customFontName = null;
+  let customFontUrl = null;
+  let lastHeavyFrame = 0;
+
+  const builtIns = {
+    'Базовый: Душа': {
+      mode:'fade', size:150, sizeRnd:15, randomRotation:true, rotRnd:12,
+      glowEnabled:false, glowColor:'#00ff88', glowBlur:28,
+      fadeCount:12, fadeInterval:220, fadeLife:1600, fadeRise:220, fadeSpread:70, fadeInPct:18
+    },
+    'Базовый: Пирамида': {
+      mode:'pyramid', size:150, sizeRnd:0, randomRotation:false, rotRnd:0,
+      glowEnabled:false, glowColor:'#00ff88', glowBlur:28,
+      pyrCount:36, pyrRowInterval:190, pyrGapXFactor:95, pyrGapYFactor:82, pyrMargin:45,
+      pyrAutoFit:true, pyrHold:650, pyrFlyTime:1100, pyrFly:700, pyrSide:220
+    },
+    'Базовый: Разброс': {
+      mode:'burst', size:150, sizeRnd:15, randomRotation:true, rotRnd:12,
+      glowEnabled:false, glowColor:'#00ff88', glowBlur:28,
+      burstCount:35, burstInterval:25, burstLife:1800, speedMin:300, speedMax:950, gravity:700, spin:240
+    },
+    'Счётчик: 0 → 10 000 000': {
+      counterEnabled:true, counterMode:'number', counterStart:0, counterEnd:10000000,
+      counterDuration:3500, counterDelay:0, counterDecimals:0, counterEase:'out',
+      counterGrouping:true, counterPrefix:'', counterSuffix:'', counterFontSize:120,
+      counterX:50, counterY:12, counterColor:'#39ff14', counterStrokeColor:'#000000',
+      counterStrokeWidth:8, counterShadow:true, counterShadowBlur:10, fontSelect:'Impact'
+    },
+    'Счётчик: 10 000 000 → 0': {
+      counterEnabled:true, counterMode:'number', counterStart:10000000, counterEnd:0,
+      counterDuration:3500, counterDelay:0, counterDecimals:0, counterEase:'linear',
+      counterGrouping:true, counterPrefix:'', counterSuffix:'', counterFontSize:120,
+      counterX:50, counterY:12, counterColor:'#ffffff', counterStrokeColor:'#000000',
+      counterStrokeWidth:8, counterShadow:true, counterShadowBlur:10, fontSelect:'Impact'
+    }
+  };
+
+  const inputIds = [
+    'size','sizeRnd','randomRotation','rotRnd','glowEnabled','glowColor','glowBlur','loop',
+    'fadeCount','fadeInterval','fadeLife','fadeRise','fadeSpread','fadeInPct',
+    'pyrCount','pyrRowInterval','pyrGapXFactor','pyrGapYFactor','pyrMargin','pyrAutoFit','pyrHold','pyrFlyTime','pyrFly','pyrSide',
+    'burstCount','burstInterval','burstLife','speedMin','speedMax','gravity','spin',
+    'counterEnabled','counterMode','counterStart','counterEnd','counterDuration','counterDelay','counterDecimals','counterEase',
+    'counterGrouping','counterPrefix','counterSuffix','counterFontSize','counterX','counterY','counterColor','counterStrokeColor',
+    'counterStrokeWidth','counterShadow','counterShadowBlur','fontSelect','format','exportFps','checker'
+  ];
+
+  function readControl(id){
+    const el=$(id);
+    if(!el) return undefined;
+    if(el.type==='checkbox') return el.checked;
+    if(el.type==='number') return Number(el.value);
+    return el.value;
+  }
+  function writeControl(id, value){
+    const el=$(id); if(!el || value===undefined) return;
+    if(el.type==='checkbox') el.checked=!!value;
+    else el.value=value;
+  }
+  function captureConfig(){
+    const c={mode};
+    for(const id of inputIds) c[id]=readControl(id);
+    return c;
+  }
+  function applyConfig(c){
+    if(!c) return;
+    if(c.mode) setMode(c.mode, false);
+    for(const id of inputIds) if(Object.prototype.hasOwnProperty.call(c,id)) writeControl(id,c[id]);
+    syncRotationControl();
+    applyFormat(false);
+    updatePyrInfo();
+    restart();
+  }
+
+  function getUserPresets(){
+    try{return JSON.parse(localStorage.getItem('spriteFxPresetsV2')||'{}')}catch{return {}}
+  }
+  function setUserPresets(obj){
+    localStorage.setItem('spriteFxPresetsV2', JSON.stringify(obj));
+  }
+  function refreshPresetList(selectName){
+    const sel=$('presetSelect'); sel.innerHTML='';
+    const g1=document.createElement('optgroup'); g1.label='Встроенные';
+    Object.keys(builtIns).forEach(name=>{
+      const o=document.createElement('option');o.value='builtin:'+name;o.textContent=name;g1.append(o);
+    });
+    sel.append(g1);
+    const users=getUserPresets();
+    const names=Object.keys(users);
+    if(names.length){
+      const g2=document.createElement('optgroup');g2.label='Мои';
+      names.forEach(name=>{
+        const o=document.createElement('option');o.value='user:'+name;o.textContent=name;g2.append(o);
+      });
+      sel.append(g2);
+    }
+    if(selectName){
+      const target=[...sel.options].find(o=>o.value.endsWith(':'+selectName));
+      if(target) sel.value=target.value;
+    }
+  }
+  refreshPresetList();
+
+  $('applyPreset').onclick=()=>{
+    const v=$('presetSelect').value;
+    if(v.startsWith('builtin:')) applyConfig(builtIns[v.slice(8)]);
+    else if(v.startsWith('user:')) applyConfig(getUserPresets()[v.slice(5)]);
+  };
+  $('savePreset').onclick=()=>{
+    const name=prompt('Название пресета:');
+    if(!name) return;
+    const users=getUserPresets(); users[name]=captureConfig(); setUserPresets(users); refreshPresetList(name);
+  };
+  $('deletePreset').onclick=()=>{
+    const v=$('presetSelect').value;
+    if(!v.startsWith('user:')){alert('Встроенные пресеты удалить нельзя.');return;}
+    const name=v.slice(5); const users=getUserPresets(); delete users[name]; setUserPresets(users); refreshPresetList();
+  };
+
+  function num(id){ return Number($(id).value || 0); }
+  function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+  function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
+  function smoothstep(t){ t=clamp(t,0,1); return t*t*(3-2*t); }
+  function easeInOut(t){ return t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+  function seeded(i){
+    let x = Math.sin((i+1)*12.9898 + seed*78.233) * 43758.5453;
+    return x - Math.floor(x);
+  }
+  function rnd(i,a,b){ return a + (b-a)*seeded(i); }
+  function spriteFor(i){
+    if(!sprites.length) return null;
+    return sprites[Math.floor(seeded(i*7+91)*sprites.length) % sprites.length].img;
+  }
+  function commonFor(i, forcedSize=null){
+    const base = forcedSize ?? num('size');
+    const sr = num('sizeRnd')/100;
+    const size = base * (1 + rnd(i*13+4,-sr,sr));
+    const rot = $('randomRotation').checked ? rnd(i*17+9, -num('rotRnd'), num('rotRnd')) * Math.PI/180 : 0;
+    return {size,rot};
+  }
+
+  function setMode(m, doRestart=true){
+    mode=m;
+    ['Fade','Pyramid','Burst'].forEach(n=>$('tab'+n).classList.toggle('active', n.toLowerCase()===m));
+    $('fadeSettings').style.display = m==='fade'?'block':'none';
+    $('pyramidSettings').style.display = m==='pyramid'?'block':'none';
+    $('burstSettings').style.display = m==='burst'?'block':'none';
+    updatePyrInfo();
+    if(doRestart) restart();
+  }
+  $('tabFade').onclick=()=>setMode('fade');
+  $('tabPyramid').onclick=()=>setMode('pyramid');
+  $('tabBurst').onclick=()=>setMode('burst');
+
+  function syncRotationControl(){
+    $('rotRnd').disabled=!$('randomRotation').checked;
+    $('rotRnd').style.opacity=$('randomRotation').checked?'1':'.45';
+  }
+  $('randomRotation').addEventListener('change',()=>{syncRotationControl();restart();});
+  syncRotationControl();
+
+  $('spriteInput').addEventListener('change', async e=>{
+    for(const file of [...e.target.files]){
+      const url=URL.createObjectURL(file);
+      const img=new Image();
+      await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=url;});
+      sprites.push({img,name:file.name,url});
+    }
+    renderSprites(); restart(); e.target.value='';
+  });
+
+  function renderSprites(){
+    const box=$('sprites'); box.innerHTML='';
+    sprites.forEach((s,i)=>{
+      const d=document.createElement('div'); d.className='sprite';
+      const im=document.createElement('img'); im.src=s.url; im.title=s.name;
+      const b=document.createElement('button'); b.textContent='×'; b.title='Удалить';
+      b.onclick=()=>{URL.revokeObjectURL(sprites[i].url);sprites.splice(i,1);renderSprites();restart();};
+      d.append(im,b); box.append(d);
+    });
+    $('status').textContent = `${sprites.length ? 'Спрайтов: '+sprites.length : 'Без спрайтов'} • ${canvas.width}×${canvas.height} • ${mode}`;
+  }
+
+  $('fontInput').addEventListener('change', async e=>{
+    const file=e.target.files[0]; if(!file)return;
+    try{
+      if(customFontUrl) URL.revokeObjectURL(customFontUrl);
+      customFontUrl=URL.createObjectURL(file);
+      customFontName='CustomFXFont';
+      const face=new FontFace(customFontName, `url(${customFontUrl})`);
+      await face.load();
+      document.fonts.add(face);
+      let opt=[...$('fontSelect').options].find(o=>o.value===customFontName);
+      if(!opt){opt=document.createElement('option');opt.value=customFontName;opt.textContent='Свой: '+file.name;$('fontSelect').append(opt);}
+      $('fontSelect').value=customFontName;
+      $('fontStatus').textContent='Загружен: '+file.name;
+      restart();
+    }catch(err){
+      alert('Не удалось загрузить шрифт: '+err.message);
+    }
+  });
+
+  function applyFormat(doRestart=true){
+    const [w,h]=$('format').value.split('x').map(Number);
+    if(canvas.width!==w || canvas.height!==h){
+      const oldW=canvas.width, oldH=canvas.height;
+      const rx=point.x/oldW, ry=point.y/oldH;
+      canvas.width=w; canvas.height=h; point={x:w*rx,y:h*ry};
+    }
+    renderSprites();
+    if(doRestart) restart();
+  }
+  $('format').onchange=()=>applyFormat(true);
+
+  canvas.addEventListener('pointerdown', e=>{
+    const r=canvas.getBoundingClientRect();
+    point.x=(e.clientX-r.left)*canvas.width/r.width;
+    point.y=(e.clientY-r.top)*canvas.height/r.height;
+    restart();
+  });
+
+  function restart(){
+    seed = (seed + 1) % 100000;
+    startedAt=performance.now(); paused=false;
+    $('pause').textContent='⏸ Пауза';
+    updatePyrInfo();
+  }
+  $('restart').onclick=restart;
+  $('pause').onclick=()=>{
+    if(!paused){paused=true;pauseAt=performance.now();$('pause').textContent='▶ Продолжить';}
+    else{startedAt += performance.now()-pauseAt;paused=false;$('pause').textContent='⏸ Пауза';}
+  };
+
+  function pyramidMeta(){
+    const N=Math.max(1,Math.floor(num('pyrCount')));
+    const rows=Math.ceil((Math.sqrt(8*N+1)-1)/2);
+    const fullTri=rows*(rows+1)/2;
+    const missing=fullTri-N;
+    // bottom row is widest; last/top row may be partial if N isn't triangular
+    const rowCounts=[];
+    let remaining=N;
+    for(let width=rows;width>=1 && remaining>0;width--){
+      const take=Math.min(width,remaining);
+      rowCounts.push(take);
+      remaining-=take;
+    }
+    return {N,rows,rowCounts,missing};
+  }
+
+  function pyramidLayout(){
+    const meta=pyramidMeta();
+    const margin=num('pyrMargin');
+    const gapXFactor=num('pyrGapXFactor')/100;
+    const gapYFactor=num('pyrGapYFactor')/100;
+    let size=Math.max(2,num('size'));
+    if($('pyrAutoFit').checked){
+      const bottomCount=Math.max(...meta.rowCounts);
+      const availableW=Math.max(20, canvas.width-2*margin);
+      const availableH=Math.max(20, canvas.height-2*margin);
+      const baseW=size*(1+(bottomCount-1)*gapXFactor);
+      const baseH=size*(1+(meta.rowCounts.length-1)*gapYFactor);
+      const scale=Math.min(1, availableW/baseW, availableH/baseH);
+      size=Math.max(1.5,size*scale);
+    }
+    const gx=size*gapXFactor, gy=size*gapYFactor;
+    const totalH=size+(meta.rowCounts.length-1)*gy;
+    const bottomY=clamp(point.y + totalH/2 - size/2, margin+size/2, canvas.height-margin-size/2);
+    const rows=[];
+    let idx=0;
+    meta.rowCounts.forEach((count,rowIndex)=>{
+      const y=bottomY-rowIndex*gy; // fill from bottom upward
+      const row=[];
+      for(let j=0;j<count;j++){
+        const x=point.x+(j-(count-1)/2)*gx;
+        row.push({i:idx++,row:rowIndex,x,y});
+      }
+      rows.push(row);
+    });
+    return {meta,size,gx,gy,rows};
+  }
+
+  function updatePyrInfo(){
+    if(mode!=='pyramid') return;
+    const L=pyramidLayout();
+    $('pyrInfo').textContent=`${L.meta.N.toLocaleString('ru-RU')} объектов • ${L.meta.rowCounts.length} рядов • расчётный размер ≈ ${L.size.toFixed(1)} px`;
+  }
+
+  function effectDurationMs(){
+    if(mode==='fade') return Math.max(300, (num('fadeCount')-1)*num('fadeInterval')+num('fadeLife'));
+    if(mode==='pyramid'){
+      const rows=pyramidMeta().rowCounts.length;
+      return Math.max(300, Math.max(0,rows-1)*num('pyrRowInterval')+num('pyrHold')+num('pyrFlyTime'));
+    }
+    return Math.max(300, (num('burstCount')-1)*num('burstInterval')+num('burstLife'));
+  }
+  function counterDurationMs(){
+    return $('counterEnabled').checked ? num('counterDelay')+num('counterDuration') : 0;
+  }
+  function durationMs(){ return Math.max(effectDurationMs(), counterDurationMs(), 300); }
+
+  function clearPreview(){
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.globalAlpha=1;
+    ctx.shadowBlur=0;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if($('checker').checked && !exportInProgress){
+      const s=48;
+      for(let y=0;y<canvas.height;y+=s){
+        for(let x=0;x<canvas.width;x+=s){
+          ctx.fillStyle=((x/s+y/s)&1)?'#262b33':'#1d2229';
+          ctx.fillRect(x,y,s,s);
+        }
+      }
+    }
+  }
+
+  function applyObjectGlow(){
+    if($('glowEnabled').checked){
+      ctx.shadowColor=$('glowColor').value;
+      ctx.shadowBlur=num('glowBlur');
+      ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+    }else{
+      ctx.shadowBlur=0;
+      ctx.shadowColor='transparent';
+    }
+  }
+
+  function drawSprite(img,x,y,size,rot,alpha){
+    if(!img || alpha<=0) return;
+    ctx.save();
+    ctx.globalAlpha=clamp(alpha,0,1);
+    ctx.translate(x,y);
+    ctx.rotate(rot);
+    applyObjectGlow();
+    const ratio=img.naturalWidth/img.naturalHeight || 1;
+    let w=size, h=size;
+    if(ratio>1) h=size/ratio; else w=size*ratio;
+    ctx.drawImage(img,-w/2,-h/2,w,h);
+    ctx.restore();
+  }
+
+  function drawFade(t){
+    const count=num('fadeCount'), intv=num('fadeInterval'), life=num('fadeLife');
+    const rise=num('fadeRise'), spread=num('fadeSpread'), fadeIn=clamp(num('fadeInPct')/100,0,.9);
+    for(let i=0;i<count;i++){
+      const age=t-i*intv;
+      if(age<0||age>life) continue;
+      const p=age/life;
+      let a;
+      if(fadeIn===0) a=1-p;
+      else if(p<fadeIn) a=smoothstep(p/fadeIn);
+      else a=1-smoothstep((p-fadeIn)/(1-fadeIn));
+      const c=commonFor(i);
+      const x0=point.x+rnd(i*5+1,-spread,spread);
+      const y0=point.y+rnd(i*5+2,-spread,spread);
+      const x=x0+rnd(i*5+3,-spread*.25,spread*.25)*p;
+      const y=y0-rise*easeOutCubic(p);
+      drawSprite(spriteFor(i),x,y,c.size*(1+.10*p),c.rot+rnd(i*3+7,-.12,.12)*p,a);
+    }
+  }
+
+  function drawPyramid(t){
+    const L=pyramidLayout();
+    const rowInt=num('pyrRowInterval');
+    const buildEnd=Math.max(0,(L.rows.length-1)*rowInt);
+    const flyStart=buildEnd+num('pyrHold');
+    const flyTime=num('pyrFlyTime'), fly=num('pyrFly'), side=num('pyrSide');
+
+    // For very large pyramids we intentionally use one sprite draw per object but skip expensive
+    // per-object appear easing once the object count is massive.
+    const massive=L.meta.N>2500;
+
+    for(let r=0;r<L.rows.length;r++){
+      const born=r*rowInt;
+      if(t<born) continue;
+      const appear=massive ? 1 : clamp((t-born)/Math.max(60,rowInt*.55),0,1);
+      const baseAlpha=massive ? 1 : smoothstep(appear);
+      const scale=massive ? 1 : .72+.28*smoothstep(appear);
+
+      for(const it of L.rows[r]){
+        let x=it.x,y=it.y,a=baseAlpha,s=scale;
+        if(t>=flyStart){
+          const p=clamp((t-flyStart)/flyTime,0,1);
+          const ang=rnd(it.i*11+2,-Math.PI*.18,Math.PI*.18);
+          x += Math.sin(ang)*side*easeOutCubic(p)+(it.x-point.x)*.16*easeOutCubic(p);
+          y -= fly*easeOutCubic(p);
+          a *= 1-smoothstep(p);
+          s *= 1+.10*p;
+        }
+        const c=commonFor(it.i,L.size);
+        drawSprite(spriteFor(it.i),x,y,c.size*s,c.rot,a);
+      }
+    }
+  }
+
+  function drawBurst(t){
+    const count=num('burstCount'), intv=num('burstInterval'), life=num('burstLife');
+    const vmin=num('speedMin'), vmax=Math.max(vmin,num('speedMax'));
+    const g=num('gravity'), spin=num('spin')*Math.PI/180;
+    for(let i=0;i<count;i++){
+      const age=t-i*intv;
+      if(age<0||age>life) continue;
+      const p=age/life, sec=age/1000;
+      const ang=rnd(i*19+3,0,Math.PI*2);
+      const v=rnd(i*19+4,vmin,vmax);
+      const vx=Math.cos(ang)*v, vy=Math.sin(ang)*v;
+      const x=point.x+vx*sec;
+      const y=point.y+vy*sec+.5*g*sec*sec;
+      const a=1-smoothstep(clamp((p-.58)/.42,0,1));
+      const c=commonFor(i);
+      const extraSpin=$('randomRotation').checked ? rnd(i*19+5,-spin,spin)*sec : 0;
+      drawSprite(spriteFor(i),x,y,c.size,c.rot+extraSpin,a);
+    }
+  }
+
+  function counterProgress(t){
+    const delay=num('counterDelay'), dur=Math.max(1,num('counterDuration'));
+    if(t<delay) return 0;
+    let p=clamp((t-delay)/dur,0,1);
+    const e=$('counterEase').value;
+    if(e==='out') p=easeOutCubic(p);
+    else if(e==='inout') p=easeInOut(p);
+    return p;
+  }
+
+  function formatCounterValue(v){
+    const dec=Math.max(0,Math.min(6,Math.floor(num('counterDecimals'))));
+    if($('counterMode').value==='seconds'){
+      const total=Math.max(0,v);
+      const mins=Math.floor(total/60);
+      const secs=total-mins*60;
+      if(mins>0) return mins+':'+secs.toFixed(dec).padStart(dec?3+dec:2,'0');
+      return secs.toFixed(dec);
+    }
+    if($('counterGrouping').checked){
+      return new Intl.NumberFormat('ru-RU',{minimumFractionDigits:dec,maximumFractionDigits:dec}).format(v);
+    }
+    return v.toFixed(dec);
+  }
+
+  function drawCounter(t){
+    if(!$('counterEnabled').checked) return;
+    const p=counterProgress(t);
+    const a=num('counterStart'), b=num('counterEnd');
+    const value=a+(b-a)*p;
+    const text=$('counterPrefix').value+formatCounterValue(value)+$('counterSuffix').value;
+    const x=canvas.width*num('counterX')/100;
+    const y=canvas.height*num('counterY')/100;
+    const size=num('counterFontSize');
+    const family=$('fontSelect').value || 'Impact';
+
+    ctx.save();
+    ctx.font=`900 ${size}px "${family}"`;
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.lineJoin='round';
+
+    if($('counterShadow').checked){
+      ctx.shadowColor='rgba(0,0,0,.75)';
+      ctx.shadowBlur=num('counterShadowBlur');
+      ctx.shadowOffsetX=Math.max(1,size*.035);
+      ctx.shadowOffsetY=Math.max(1,size*.035);
+    }
+    const sw=num('counterStrokeWidth');
+    if(sw>0){
+      ctx.lineWidth=sw*2;
+      ctx.strokeStyle=$('counterStrokeColor').value;
+      ctx.strokeText(text,x,y);
+    }
+    ctx.fillStyle=$('counterColor').value;
+    ctx.fillText(text,x,y);
+    ctx.restore();
+  }
+
+  function drawAt(t){
+    clearPreview();
+    if(sprites.length){
+      if(mode==='fade') drawFade(t);
+      else if(mode==='pyramid') drawPyramid(t);
+      else drawBurst(t);
+    }
+    drawCounter(t);
+
+    if(!exportInProgress){
+      ctx.save();
+      ctx.shadowBlur=0;
+      ctx.strokeStyle='rgba(255,255,255,.58)';
+      ctx.lineWidth=Math.max(2,canvas.width/500);
+      ctx.beginPath();ctx.arc(point.x,point.y,16,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(point.x-26,point.y);ctx.lineTo(point.x+26,point.y);
+      ctx.moveTo(point.x,point.y-26);ctx.lineTo(point.x,point.y+26);ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function frame(now){
+    // КРИТИЧНО: во время экспорта обычный preview-loop вообще не рисует canvas.
+    // Раньше одновременно работали ДВА render-loop'а: preview и exporter.
+    // Из-за этого в WebM вперемешку попадали кадры из разных моментов анимации.
+    if(exportInProgress){
+      requestAnimationFrame(frame);
+      return;
+    }
+
+    const heavy=mode==='pyramid' && num('pyrCount')>2500;
+    if(heavy && now-lastHeavyFrame<33){
+      requestAnimationFrame(frame); return;
+    }
+    lastHeavyFrame=now;
+    let t=(paused?pauseAt:now)-startedAt;
+    const d=durationMs();
+    if($('loop').checked && d>0) t=((t%d)+d)%d;
+    else t=Math.min(t,d);
+    drawAt(t);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
+
+  function setExportUiLocked(locked){
+    document.querySelector('.sidebar').style.pointerEvents = locked ? 'none' : '';
+    document.querySelector('.sidebar').style.opacity = locked ? '.62' : '';
+    $('restart').disabled = locked;
+    $('pause').disabled = locked;
+    $('png').disabled = locked;
+  }
+
+  $('png').onclick=()=>{
+    const was=exportInProgress; exportInProgress=true;
+    let t=(paused?pauseAt:performance.now())-startedAt;
+    const d=durationMs(); if($('loop').checked) t=((t%d)+d)%d;
+    drawAt(t);
+    const a=document.createElement('a');
+    a.download='sprite-effect-frame.png';
+    a.href=canvas.toDataURL('image/png');
+    a.click();
+    exportInProgress=was;
+  };
+
+  $('webm').onclick=async()=>{
+    if(exportInProgress) return;
+    if(!('MediaRecorder' in window)){
+      alert('Этот браузер не поддерживает MediaRecorder. Откройте файл в актуальном Chrome/Edge.');
+      return;
+    }
+
+    const btn=$('webm');
+    const oldBtn=btn.textContent;
+    const oldStatus=$('status').textContent;
+    let stream=null;
+
+    try{
+      exportInProgress=true;
+      setExportUiLocked(true);
+      btn.textContent='● Подготовка...';
+      btn.disabled=true;
+
+      const requestedFps=Number($('exportFps').value)||60;
+      // Слишком тяжёлые сцены лучше честно кодировать в 30/24 FPS,
+      // чем получать дубли/пропуски кадров из-за перегрузки браузера.
+      let fps=requestedFps;
+      if(mode==='pyramid' && num('pyrCount')>2500) fps=Math.min(fps,30);
+      if(mode==='pyramid' && num('pyrCount')>7000) fps=Math.min(fps,24);
+
+      const d=Math.max(1,durationMs());
+      const frameMs=1000/fps;
+      const totalFrames=Math.max(2, Math.ceil(d/frameMs)+1);
+
+      // captureStream(0) = браузер НЕ снимает canvas сам.
+      // Каждый кадр отправляется в поток только после drawAt() через requestFrame().
+      // Это устраняет перемешивание и случайные промежуточные кадры.
+      stream=canvas.captureStream(0);
+      const track=stream.getVideoTracks()[0];
+      const manualFrames=track && typeof track.requestFrame==='function';
+
+      // Старые браузеры: запасной режим. Preview-loop всё равно заморожен,
+      // поэтому даже fallback больше не конфликтует с экспортом.
+      if(!manualFrames){
+        stream.getTracks().forEach(t=>t.stop());
+        stream=canvas.captureStream(fps);
+      }
+
+      const videoTrack=stream.getVideoTracks()[0];
+      if(videoTrack && 'contentHint' in videoTrack) videoTrack.contentHint='motion';
+
+      let mime='video/webm;codecs=vp9';
+      if(!MediaRecorder.isTypeSupported(mime)){
+        mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+          ? 'video/webm;codecs=vp8'
+          : 'video/webm';
+      }
+
+      const pixels=canvas.width*canvas.height;
+      const bitrate=Math.max(10_000_000, Math.min(36_000_000, Math.round(pixels*fps*0.22)));
+      const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:bitrate});
+      const chunks=[];
+      let recorderError=null;
+
+      rec.ondataavailable=e=>{ if(e.data && e.data.size) chunks.push(e.data); };
+      rec.onerror=e=>{ recorderError=e.error || new Error('Ошибка MediaRecorder'); };
+      const done=new Promise(resolve=>rec.addEventListener('stop',resolve,{once:true}));
+
+      // Первый кадр готовим ДО старта записи.
+      drawAt(0);
+      rec.start(500);
+
+      // Даём recorder один event-loop, затем начинаем строго последовательную запись.
+      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+
+      const wallStart=performance.now();
+
+      for(let i=0;i<totalFrames;i++){
+        const animationTime=Math.min(i*frameMs,d);
+
+        // Один номер кадра = один конкретный момент анимации.
+        drawAt(animationTime);
+
+        if(manualFrames){
+          stream.getVideoTracks()[0].requestFrame();
+        }
+
+        const pct=Math.min(100,Math.round((i+1)/totalFrames*100));
+        btn.textContent=`● Экспорт ${pct}%`;
+        $('status').textContent=`Запись ${fps} FPS • кадр ${i+1}/${totalFrames}`;
+
+        // Держим MediaRecorder в реальном времени, но playhead вычисляем
+        // НЕ по performance.now(), а только по номеру кадра.
+        // Поэтому микролаг больше не прыгает вперёд по анимации.
+        const target=wallStart+(i+1)*frameMs;
+        const wait=target-performance.now();
+        if(wait>1) await sleep(wait);
+        else await sleep(0);
+      }
+
+      // Последнему кадру нужно время попасть в энкодер до stop().
+      await sleep(Math.max(80,frameMs*3));
+      if(rec.state==='recording'){
+        try{ rec.requestData(); }catch{}
+        await sleep(25);
+        rec.stop();
+      }
+      await done;
+
+      if(recorderError) throw recorderError;
+      if(!chunks.length) throw new Error('Браузер не создал видеоданные.');
+
+      const blob=new Blob(chunks,{type:mime});
+      if(blob.size<1000) throw new Error('Получился пустой или повреждённый WebM.');
+
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=`sprite-effect-${fps}fps.webm`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),15000);
+
+      $('status').textContent=`Готово • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ`;
+    }catch(err){
+      console.error(err);
+      alert('Ошибка экспорта: '+(err?.message || err));
+      $('status').textContent='Экспорт не удался';
+    }finally{
+      if(stream) stream.getTracks().forEach(t=>t.stop());
+      exportInProgress=false;
+      setExportUiLocked(false);
+      btn.textContent=oldBtn;
+      btn.disabled=false;
+
+      // Возвращаем обычный preview уже ПОСЛЕ закрытия экспортного потока.
+      startedAt=performance.now();
+      paused=false;
+      $('pause').textContent='⏸ Пауза';
+      setTimeout(()=>{
+        if($('status').textContent.startsWith('Запись')) $('status').textContent=oldStatus;
+      },100);
+    }
+  };
+
+  inputIds.forEach(id=>{
+    const el=$(id); if(!el || ['format'].includes(id)) return;
+    el.addEventListener('change',()=>{
+      if(id==='randomRotation') syncRotationControl();
+      if(id.startsWith('pyr') || id==='size') updatePyrInfo();
+      restart();
+    });
+  });
+
+  // More responsive numeric editing without restarting on every keystroke where possible.
+  ['pyrCount','pyrGapXFactor','pyrGapYFactor','pyrMargin','size','counterStart','counterEnd','counterDuration','counterFontSize','counterX','counterY']
+    .forEach(id=>$(id).addEventListener('input',()=>{ if(id.startsWith('pyr')||id==='size') updatePyrInfo(); }));
+
+  renderSprites();
+  updatePyrInfo();
+  drawAt(0);
+})();
+</script>
+</body>
+</html>
