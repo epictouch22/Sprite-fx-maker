@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.3</title>
+<title>Sprite FX Maker v2.4</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.3</h1>
+    <h1>Sprite FX Maker v2.4</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -240,7 +240,7 @@
       </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.3: добавлен выбор фона экспорта. Прозрачность сохраняется в WebM, а MP4 на iPhone экспортируется с chroma key вместо чёрного фона.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.4: MP4 и WebM теперь отдельные кнопки. На iPhone используйте MP4; если выбран «Прозрачный», MP4 автоматически получит зелёный chroma key, потому что H.264 не хранит alpha.</div>
     </div>
   </aside>
 
@@ -250,7 +250,8 @@
         <button id="restart" class="primary">▶ С начала</button>
         <button id="pause">⏸ Пауза</button>
         <button id="png">PNG кадр</button>
-        <button id="webm" class="good">Экспорт видео</button>
+        <button id="exportMp4" class="good">📱 Экспорт MP4</button>
+        <button id="exportWebm">✨ WebM с прозрачностью</button>
         <button id="mobileSave" class="primary" style="display:none">📱 Сохранить файл</button>
       </div>
       <div id="status" class="status">Нет спрайтов — можно использовать только счётчик или загрузить PNG/JPG/WebP</div>
@@ -282,6 +283,7 @@
   let lastHeavyFrame = 0;
   let pendingExport = null;
   let pendingExportUrl = null;
+  let forcedExportBgMode = null;
 
   const builtIns = {
     'Базовый: Душа': {
@@ -580,7 +582,7 @@
   function durationMs(){ return Math.max(effectDurationMs(), counterDurationMs(), 300); }
 
   function exportBackgroundColor(){
-    const mode=$('exportBgMode')?.value || 'transparent';
+    const mode=forcedExportBgMode || $('exportBgMode')?.value || 'transparent';
     if(mode==='green') return '#00ff00';
     if(mode==='blue') return '#0000ff';
     if(mode==='custom') return $('exportBgColor')?.value || '#00ff00';
@@ -827,44 +829,31 @@
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
-  function pickRecordingFormat(){
-    const wantsAlpha=($('exportBgMode')?.value || 'transparent')==='transparent';
+  function pickRecordingFormat(target){
     const ios=isIOSLike();
 
-    const alphaCandidates=[
+    if(target==='mp4'){
+      const candidates=[
+        {mime:'video/mp4;codecs=avc1.42E01E',ext:'mp4',alpha:false},
+        {mime:'video/mp4',ext:'mp4',alpha:false}
+      ];
+      for(const c of candidates){
+        try{ if(MediaRecorder.isTypeSupported(c.mime)) return c; }catch{}
+      }
+      // Safari обычно принимает video/mp4 даже когда isTypeSupported ведёт себя странно.
+      if(ios) return {mime:'video/mp4',ext:'mp4',alpha:false};
+      throw new Error('Этот браузер не умеет записывать MP4 через MediaRecorder.');
+    }
+
+    const candidates=[
       {mime:'video/webm;codecs=vp9',ext:'webm',alpha:true},
       {mime:'video/webm;codecs=vp8',ext:'webm',alpha:true},
       {mime:'video/webm',ext:'webm',alpha:true}
     ];
-    const opaqueCandidates=[
-      {mime:'video/mp4;codecs=avc1.42E01E',ext:'mp4',alpha:false},
-      {mime:'video/mp4',ext:'mp4',alpha:false},
-      {mime:'video/webm;codecs=vp9',ext:'webm',alpha:false},
-      {mime:'video/webm;codecs=vp8',ext:'webm',alpha:false},
-      {mime:'video/webm',ext:'webm',alpha:false}
-    ];
-
-    const candidates=wantsAlpha ? alphaCandidates : (ios ? opaqueCandidates : [
-      {mime:'video/webm;codecs=vp9',ext:'webm',alpha:false},
-      {mime:'video/webm;codecs=vp8',ext:'webm',alpha:false},
-      {mime:'video/webm',ext:'webm',alpha:false},
-      ...opaqueCandidates
-    ]);
-
     for(const c of candidates){
-      try{
-        if(MediaRecorder.isTypeSupported(c.mime)) return c;
-      }catch{}
+      try{ if(MediaRecorder.isTypeSupported(c.mime)) return c; }catch{}
     }
-
-    // Если alpha-кодек недоступен, принудительно переходим на chroma key,
-    // чтобы пользователь не получил неожиданный чёрный фон.
-    if(wantsAlpha){
-      $('exportBgMode').value='green';
-      syncExportBgUi();
-      return pickRecordingFormat();
-    }
-    return {mime:'',ext:ios?'mp4':'webm',alpha:false};
+    throw new Error('Этот браузер не умеет экспортировать WebM.');
   }
 
   function clearPendingExport(){
@@ -921,6 +910,8 @@
     $('restart').disabled = locked;
     $('pause').disabled = locked;
     $('png').disabled = locked;
+    $('exportMp4').disabled = locked;
+    $('exportWebm').disabled = locked;
   }
 
   $('png').onclick=()=>{
@@ -935,25 +926,30 @@
     exportInProgress=was;
   };
 
-  $('webm').onclick=async()=>{
+  async function exportVideo(target){
     if(exportInProgress) return;
     if(!('MediaRecorder' in window)){
-      alert('Этот браузер не поддерживает MediaRecorder.');
+      alert('Этот браузер не поддерживает запись видео.');
       return;
     }
 
     clearPendingExport();
 
-    const btn=$('webm');
+    const btn=target==='mp4' ? $('exportMp4') : $('exportWebm');
     const oldBtn=btn.textContent;
     const oldStatus=$('status').textContent;
     let stream=null;
 
+    // MP4/H.264 не хранит alpha. Если пользователь оставил "Прозрачный",
+    // используем чистый зелёный фон только на время MP4-экспорта.
+    const selectedBg=$('exportBgMode')?.value || 'transparent';
+    forcedExportBgMode=(target==='mp4' && selectedBg==='transparent') ? 'green' : null;
+
     try{
       exportInProgress=true;
       setExportUiLocked(true);
+      btn.disabled=false; // чтобы текст кнопки оставался визуально нормальным
       btn.textContent='● Подготовка...';
-      btn.disabled=true;
 
       const requestedFps=Number($('exportFps').value)||60;
       let fps=requestedFps;
@@ -962,45 +958,33 @@
 
       const d=Math.max(1,durationMs());
       const frameMs=1000/fps;
-      const totalFrames=Math.max(2, Math.ceil(d/frameMs)+1);
+      const totalFrames=Math.max(2,Math.ceil(d/frameMs)+1);
 
       stream=canvas.captureStream(0);
-      const track=stream.getVideoTracks()[0];
-      const manualFrames=track && typeof track.requestFrame==='function';
+      let track=stream.getVideoTracks()[0];
+      let manualFrames=track && typeof track.requestFrame==='function';
 
       if(!manualFrames){
         stream.getTracks().forEach(t=>t.stop());
         stream=canvas.captureStream(fps);
+        track=stream.getVideoTracks()[0];
       }
+      if(track && 'contentHint' in track) track.contentHint='motion';
 
-      const videoTrack=stream.getVideoTracks()[0];
-      if(videoTrack && 'contentHint' in videoTrack) videoTrack.contentHint='motion';
-
-      const format=pickRecordingFormat();
-      const options={videoBitsPerSecond:Math.max(
+      const format=pickRecordingFormat(target);
+      const bitrate=Math.max(
         10_000_000,
         Math.min(36_000_000,Math.round(canvas.width*canvas.height*fps*0.22))
-      )};
+      );
+      const options={videoBitsPerSecond:bitrate};
       if(format.mime) options.mimeType=format.mime;
 
       let rec;
       try{
         rec=new MediaRecorder(stream,options);
       }catch(err){
-        // Если браузер сорвался с WebM alpha, не записываем молча чёрный MP4.
-        // Вместо этого переключаемся на зелёный chroma key и пробуем MP4.
-        if(format.alpha){
-          $('exportBgMode').value='green';
-          syncExportBgUi();
-          format.mime='video/mp4';
-          format.ext='mp4';
-          format.alpha=false;
-          drawAt(0);
-          rec=new MediaRecorder(stream,{mimeType:'video/mp4',videoBitsPerSecond:options.videoBitsPerSecond});
-        }else if(isIOSLike()){
-          rec=new MediaRecorder(stream,{mimeType:'video/mp4',videoBitsPerSecond:options.videoBitsPerSecond});
-          format.mime='video/mp4';
-          format.ext='mp4';
+        if(target==='mp4' && isIOSLike()){
+          rec=new MediaRecorder(stream,{mimeType:'video/mp4',videoBitsPerSecond:bitrate});
         }else{
           throw err;
         }
@@ -1008,8 +992,8 @@
 
       const chunks=[];
       let recorderError=null;
-      rec.ondataavailable=e=>{ if(e.data && e.data.size) chunks.push(e.data); };
-      rec.onerror=e=>{ recorderError=e.error || new Error('Ошибка MediaRecorder'); };
+      rec.ondataavailable=e=>{if(e.data && e.data.size) chunks.push(e.data);};
+      rec.onerror=e=>{recorderError=e.error || new Error('Ошибка MediaRecorder');};
       const done=new Promise(resolve=>rec.addEventListener('stop',resolve,{once:true}));
 
       drawAt(0);
@@ -1017,29 +1001,28 @@
       await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
 
       const wallStart=performance.now();
-
       for(let i=0;i<totalFrames;i++){
         const animationTime=Math.min(i*frameMs,d);
         drawAt(animationTime);
 
         if(manualFrames){
-          stream.getVideoTracks()[0].requestFrame();
+          const currentTrack=stream.getVideoTracks()[0];
+          if(currentTrack && typeof currentTrack.requestFrame==='function') currentTrack.requestFrame();
         }
 
         const pct=Math.min(100,Math.round((i+1)/totalFrames*100));
-        btn.textContent=`● Экспорт ${pct}%`;
-        $('status').textContent=`Запись ${fps} FPS • кадр ${i+1}/${totalFrames}`;
+        btn.textContent=`● ${target.toUpperCase()} ${pct}%`;
+        $('status').textContent=`Запись ${target.toUpperCase()} • ${fps} FPS • кадр ${i+1}/${totalFrames}`;
 
-        const target=wallStart+(i+1)*frameMs;
-        const wait=target-performance.now();
-        if(wait>1) await sleep(wait);
-        else await sleep(0);
+        const targetTime=wallStart+(i+1)*frameMs;
+        const wait=targetTime-performance.now();
+        if(wait>1) await sleep(wait); else await sleep(0);
       }
 
-      await sleep(Math.max(100,frameMs*3));
+      await sleep(Math.max(120,frameMs*4));
       if(rec.state==='recording'){
-        try{ rec.requestData(); }catch{}
-        await sleep(35);
+        try{rec.requestData();}catch{}
+        await sleep(40);
         rec.stop();
       }
       await done;
@@ -1047,9 +1030,12 @@
       if(recorderError) throw recorderError;
       if(!chunks.length) throw new Error('Браузер не создал видеоданные.');
 
+      const ext=target==='mp4'?'mp4':'webm';
       const actualMime=(rec.mimeType || format.mime || chunks[0]?.type || '').toLowerCase();
-      const ext=actualMime.includes('mp4') ? 'mp4' : 'webm';
-      const blobType=actualMime || (ext==='mp4'?'video/mp4':'video/webm');
+      const blobType=target==='mp4'
+        ? (actualMime.includes('mp4')?actualMime:'video/mp4')
+        : (actualMime.includes('webm')?actualMime:'video/webm');
+
       const blob=new Blob(chunks,{type:blobType});
       if(blob.size<1000) throw new Error('Получился пустой или повреждённый видеофайл.');
 
@@ -1059,25 +1045,25 @@
       pendingExportUrl=url;
       pendingExport={file,url};
 
-      if(isIOSLike()){
-        // На iOS не инициируем скачивание автоматически: после долгого async-рендера
-        // Safari теряет user activation. Пользователь делает второй тап по кнопке,
-        // после чего открывается системное меню Share/Save to Files с нормальным именем.
-        $('mobileSave').style.display='';
-        $('mobileSave').textContent=`📱 Сохранить ${ext.toUpperCase()}`;
-        const bgMode=$('exportBgMode')?.value || 'transparent';
-        const bgLabel=bgMode==='transparent'?'alpha':(bgMode==='green'?'green screen':(bgMode==='blue'?'blue screen':'цветной фон'));
-        $('status').textContent=`Готово • ${ext.toUpperCase()} • ${bgLabel} • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ — нажмите «Сохранить»`;
-      }else{
+      $('mobileSave').style.display='';
+      $('mobileSave').textContent=`📱 Сохранить ${ext.toUpperCase()}`;
+
+      const usedBg=forcedExportBgMode || selectedBg;
+      const bgLabel=target==='webm'
+        ? 'прозрачность'
+        : (usedBg==='green'?'зелёный фон':usedBg==='blue'?'синий фон':'цветной фон');
+
+      $('status').textContent=`Готово • ${ext.toUpperCase()} • ${bgLabel} • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ — нажмите «Сохранить»`;
+
+      // На ПК можно сразу скачать. На iPhone обязательно оставляем отдельную
+      // кнопку, чтобы navigator.share вызывался непосредственно пользовательским тапом.
+      if(!isIOSLike()){
         const a=document.createElement('a');
         a.href=url;
         a.download=filename;
         document.body.appendChild(a);
         a.click();
         a.remove();
-        $('mobileSave').style.display='';
-        $('mobileSave').textContent='Скачать ещё раз';
-        $('status').textContent=`Готово • ${ext.toUpperCase()} • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ`;
       }
     }catch(err){
       console.error(err);
@@ -1085,6 +1071,7 @@
       $('status').textContent='Экспорт не удался';
     }finally{
       if(stream) stream.getTracks().forEach(t=>t.stop());
+      forcedExportBgMode=null;
       exportInProgress=false;
       setExportUiLocked(false);
       btn.textContent=oldBtn;
@@ -1097,7 +1084,10 @@
         if($('status').textContent.startsWith('Запись')) $('status').textContent=oldStatus;
       },100);
     }
-  };
+  }
+
+  $('exportMp4').onclick=()=>exportVideo('mp4');
+  $('exportWebm').onclick=()=>exportVideo('webm');
 
   inputIds.forEach(id=>{
     const el=$(id); if(!el || ['format'].includes(id)) return;
@@ -1112,9 +1102,22 @@
   ['pyrCount','pyrGapXFactor','pyrGapYFactor','pyrMargin','size','counterStart','counterEnd','counterDuration','counterFontSize','counterX','counterY']
     .forEach(id=>$(id).addEventListener('input',()=>{ if(id.startsWith('pyr')||id==='size') updatePyrInfo(); }));
 
+  function setupMobileExportUi(){
+    if(isIOSLike()){
+      $('exportMp4').classList.add('good');
+      $('exportWebm').classList.remove('good');
+      if($('exportBgMode').value==='transparent'){
+        $('exportBgMode').value='green';
+        syncExportBgUi();
+      }
+      $('alphaHint').textContent='iPhone: используйте MP4. Для удаления фона в CapCut/монтажке выберите зелёный или синий chroma key.';
+    }
+  }
+
   renderSprites();
   updatePyrInfo();
   syncExportBgUi();
+  setupMobileExportUi();
   drawAt(0);
 })();
 </script>
