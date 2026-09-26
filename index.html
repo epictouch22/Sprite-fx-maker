@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.2</title>
+<title>Sprite FX Maker v2.3</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.2</h1>
+    <h1>Sprite FX Maker v2.3</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -222,9 +222,25 @@
           <option value="24">24 FPS</option>
         </select>
       </div>
+      <div class="row">
+        <label>Фон видео</label>
+        <select id="exportBgMode">
+          <option value="transparent">Прозрачный (WebM)</option>
+          <option value="green">Зелёный chroma key (MP4)</option>
+          <option value="blue">Синий chroma key (MP4)</option>
+          <option value="custom">Свой цвет</option>
+        </select>
+      </div>
+      <div class="row" id="customBgRow" style="display:none">
+        <label>Цвет фона</label>
+        <input id="exportBgColor" type="color" value="#00ff00">
+      </div>
+      <div class="small" id="alphaHint" style="margin-top:7px;color:#b8c2d1">
+        MP4/H.264 не хранит прозрачность. Для настоящего alpha используйте WebM; для iPhone/монтажа в MP4 — chroma key.
+      </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.2: на iPhone/iPad экспортируется MP4, после рендера появляется отдельная кнопка сохранения через системное меню iOS. На ПК по возможности используется WebM.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.3: добавлен выбор фона экспорта. Прозрачность сохраняется в WebM, а MP4 на iPhone экспортируется с chroma key вместо чёрного фона.</div>
     </div>
   </aside>
 
@@ -307,7 +323,7 @@
     'burstCount','burstInterval','burstLife','speedMin','speedMax','gravity','spin',
     'counterEnabled','counterMode','counterStart','counterEnd','counterDuration','counterDelay','counterDecimals','counterEase',
     'counterGrouping','counterPrefix','counterSuffix','counterFontSize','counterX','counterY','counterColor','counterStrokeColor',
-    'counterStrokeWidth','counterShadow','counterShadowBlur','fontSelect','format','exportFps','checker'
+    'counterStrokeWidth','counterShadow','counterShadowBlur','fontSelect','format','exportFps','exportBgMode','exportBgColor','checker'
   ];
 
   function readControl(id){
@@ -563,7 +579,28 @@
   }
   function durationMs(){ return Math.max(effectDurationMs(), counterDurationMs(), 300); }
 
-  function clearPreview(){
+  function exportBackgroundColor(){
+    const mode=$('exportBgMode')?.value || 'transparent';
+    if(mode==='green') return '#00ff00';
+    if(mode==='blue') return '#0000ff';
+    if(mode==='custom') return $('exportBgColor')?.value || '#00ff00';
+    return null;
+  }
+
+  function drawExportBackground(){
+    if(!exportInProgress) return;
+    const c=exportBackgroundColor();
+    if(!c) return;
+    ctx.save();
+    ctx.globalAlpha=1;
+    ctx.shadowBlur=0;
+    ctx.globalCompositeOperation='destination-over';
+    ctx.fillStyle=c;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.restore();
+  }
+
+    function clearPreview(){
     ctx.setTransform(1,0,0,1,0,0);
     ctx.globalAlpha=1;
     ctx.shadowBlur=0;
@@ -746,6 +783,8 @@
     }
     drawCounter(t);
 
+    drawExportBackground();
+
     if(!exportInProgress){
       ctx.save();
       ctx.shadowBlur=0;
@@ -789,27 +828,43 @@
   }
 
   function pickRecordingFormat(){
+    const wantsAlpha=($('exportBgMode')?.value || 'transparent')==='transparent';
     const ios=isIOSLike();
-    const candidates = ios
-      ? [
-          {mime:'video/mp4;codecs=avc1.42E01E', ext:'mp4'},
-          {mime:'video/mp4', ext:'mp4'},
-          {mime:'video/webm;codecs=vp8', ext:'webm'},
-          {mime:'video/webm', ext:'webm'}
-        ]
-      : [
-          {mime:'video/webm;codecs=vp9', ext:'webm'},
-          {mime:'video/webm;codecs=vp8', ext:'webm'},
-          {mime:'video/webm', ext:'webm'},
-          {mime:'video/mp4;codecs=avc1.42E01E', ext:'mp4'},
-          {mime:'video/mp4', ext:'mp4'}
-        ];
+
+    const alphaCandidates=[
+      {mime:'video/webm;codecs=vp9',ext:'webm',alpha:true},
+      {mime:'video/webm;codecs=vp8',ext:'webm',alpha:true},
+      {mime:'video/webm',ext:'webm',alpha:true}
+    ];
+    const opaqueCandidates=[
+      {mime:'video/mp4;codecs=avc1.42E01E',ext:'mp4',alpha:false},
+      {mime:'video/mp4',ext:'mp4',alpha:false},
+      {mime:'video/webm;codecs=vp9',ext:'webm',alpha:false},
+      {mime:'video/webm;codecs=vp8',ext:'webm',alpha:false},
+      {mime:'video/webm',ext:'webm',alpha:false}
+    ];
+
+    const candidates=wantsAlpha ? alphaCandidates : (ios ? opaqueCandidates : [
+      {mime:'video/webm;codecs=vp9',ext:'webm',alpha:false},
+      {mime:'video/webm;codecs=vp8',ext:'webm',alpha:false},
+      {mime:'video/webm',ext:'webm',alpha:false},
+      ...opaqueCandidates
+    ]);
+
     for(const c of candidates){
       try{
         if(MediaRecorder.isTypeSupported(c.mime)) return c;
       }catch{}
     }
-    return {mime:'',ext:ios?'mp4':'webm'};
+
+    // Если alpha-кодек недоступен, принудительно переходим на chroma key,
+    // чтобы пользователь не получил неожиданный чёрный фон.
+    if(wantsAlpha){
+      $('exportBgMode').value='green';
+      syncExportBgUi();
+      return pickRecordingFormat();
+    }
+    return {mime:'',ext:ios?'mp4':'webm',alpha:false};
   }
 
   function clearPendingExport(){
@@ -852,7 +907,15 @@
 
   $('mobileSave').onclick=savePendingExport;
 
-  function setExportUiLocked(locked){
+  function syncExportBgUi(){
+    if(!$('exportBgMode')) return;
+    $('customBgRow').style.display=$('exportBgMode').value==='custom'?'grid':'none';
+  }
+  $('exportBgMode')?.addEventListener('change',()=>{syncExportBgUi();restart();});
+  $('exportBgColor')?.addEventListener('change',restart);
+  syncExportBgUi();
+
+    function setExportUiLocked(locked){
     document.querySelector('.sidebar').style.pointerEvents = locked ? 'none' : '';
     document.querySelector('.sidebar').style.opacity = locked ? '.62' : '';
     $('restart').disabled = locked;
@@ -924,8 +987,17 @@
       try{
         rec=new MediaRecorder(stream,options);
       }catch(err){
-        // Некоторые Safari заявляют поддержку codec-параметра, но принимают только video/mp4.
-        if(isIOSLike()){
+        // Если браузер сорвался с WebM alpha, не записываем молча чёрный MP4.
+        // Вместо этого переключаемся на зелёный chroma key и пробуем MP4.
+        if(format.alpha){
+          $('exportBgMode').value='green';
+          syncExportBgUi();
+          format.mime='video/mp4';
+          format.ext='mp4';
+          format.alpha=false;
+          drawAt(0);
+          rec=new MediaRecorder(stream,{mimeType:'video/mp4',videoBitsPerSecond:options.videoBitsPerSecond});
+        }else if(isIOSLike()){
           rec=new MediaRecorder(stream,{mimeType:'video/mp4',videoBitsPerSecond:options.videoBitsPerSecond});
           format.mime='video/mp4';
           format.ext='mp4';
@@ -993,7 +1065,9 @@
         // после чего открывается системное меню Share/Save to Files с нормальным именем.
         $('mobileSave').style.display='';
         $('mobileSave').textContent=`📱 Сохранить ${ext.toUpperCase()}`;
-        $('status').textContent=`Готово • ${ext.toUpperCase()} • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ — нажмите «Сохранить»`;
+        const bgMode=$('exportBgMode')?.value || 'transparent';
+        const bgLabel=bgMode==='transparent'?'alpha':(bgMode==='green'?'green screen':(bgMode==='blue'?'blue screen':'цветной фон'));
+        $('status').textContent=`Готово • ${ext.toUpperCase()} • ${bgLabel} • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ — нажмите «Сохранить»`;
       }else{
         const a=document.createElement('a');
         a.href=url;
@@ -1040,6 +1114,7 @@
 
   renderSprites();
   updatePyrInfo();
+  syncExportBgUi();
   drawAt(0);
 })();
 </script>
