@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.1</title>
+<title>Sprite FX Maker v2.2</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.1</h1>
+    <h1>Sprite FX Maker v2.2</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -224,7 +224,7 @@
       </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.1: экспорт пишет кадры последовательно и блокирует preview на время записи — без перемешивания кадров.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.2: на iPhone/iPad экспортируется MP4, после рендера появляется отдельная кнопка сохранения через системное меню iOS. На ПК по возможности используется WebM.</div>
     </div>
   </aside>
 
@@ -234,7 +234,8 @@
         <button id="restart" class="primary">▶ С начала</button>
         <button id="pause">⏸ Пауза</button>
         <button id="png">PNG кадр</button>
-        <button id="webm" class="good">Экспорт WebM</button>
+        <button id="webm" class="good">Экспорт видео</button>
+        <button id="mobileSave" class="primary" style="display:none">📱 Сохранить файл</button>
       </div>
       <div id="status" class="status">Нет спрайтов — можно использовать только счётчик или загрузить PNG/JPG/WebP</div>
     </div>
@@ -263,6 +264,8 @@
   let customFontName = null;
   let customFontUrl = null;
   let lastHeavyFrame = 0;
+  let pendingExport = null;
+  let pendingExportUrl = null;
 
   const builtIns = {
     'Базовый: Душа': {
@@ -780,6 +783,75 @@
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
 
+  function isIOSLike(){
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  function pickRecordingFormat(){
+    const ios=isIOSLike();
+    const candidates = ios
+      ? [
+          {mime:'video/mp4;codecs=avc1.42E01E', ext:'mp4'},
+          {mime:'video/mp4', ext:'mp4'},
+          {mime:'video/webm;codecs=vp8', ext:'webm'},
+          {mime:'video/webm', ext:'webm'}
+        ]
+      : [
+          {mime:'video/webm;codecs=vp9', ext:'webm'},
+          {mime:'video/webm;codecs=vp8', ext:'webm'},
+          {mime:'video/webm', ext:'webm'},
+          {mime:'video/mp4;codecs=avc1.42E01E', ext:'mp4'},
+          {mime:'video/mp4', ext:'mp4'}
+        ];
+    for(const c of candidates){
+      try{
+        if(MediaRecorder.isTypeSupported(c.mime)) return c;
+      }catch{}
+    }
+    return {mime:'',ext:ios?'mp4':'webm'};
+  }
+
+  function clearPendingExport(){
+    if(pendingExportUrl){
+      URL.revokeObjectURL(pendingExportUrl);
+      pendingExportUrl=null;
+    }
+    pendingExport=null;
+    $('mobileSave').style.display='none';
+  }
+
+  async function savePendingExport(){
+    if(!pendingExport) return;
+    const file=pendingExport.file;
+    // На iOS вызов share должен идти непосредственно из отдельного пользовательского тапа.
+    try{
+      if(navigator.canShare && navigator.share && navigator.canShare({files:[file]})){
+        await navigator.share({files:[file]});
+        return;
+      }
+    }catch(err){
+      // Если пользователь просто закрыл меню Share — это не критическая ошибка.
+      if(err && err.name==='AbortError') return;
+      console.warn('share failed',err);
+    }
+
+    // Fallback: обычная ссылка. Для iOS открываем Blob отдельно, чтобы его можно
+    // было сохранить через кнопку "Поделиться" -> "Сохранить в Файлы".
+    if(isIOSLike()){
+      window.open(pendingExport.url,'_blank');
+    }else{
+      const a=document.createElement('a');
+      a.href=pendingExport.url;
+      a.download=file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  }
+
+  $('mobileSave').onclick=savePendingExport;
+
   function setExportUiLocked(locked){
     document.querySelector('.sidebar').style.pointerEvents = locked ? 'none' : '';
     document.querySelector('.sidebar').style.opacity = locked ? '.62' : '';
@@ -803,9 +875,11 @@
   $('webm').onclick=async()=>{
     if(exportInProgress) return;
     if(!('MediaRecorder' in window)){
-      alert('Этот браузер не поддерживает MediaRecorder. Откройте файл в актуальном Chrome/Edge.');
+      alert('Этот браузер не поддерживает MediaRecorder.');
       return;
     }
+
+    clearPendingExport();
 
     const btn=$('webm');
     const oldBtn=btn.textContent;
@@ -819,8 +893,6 @@
       btn.disabled=true;
 
       const requestedFps=Number($('exportFps').value)||60;
-      // Слишком тяжёлые сцены лучше честно кодировать в 30/24 FPS,
-      // чем получать дубли/пропуски кадров из-за перегрузки браузера.
       let fps=requestedFps;
       if(mode==='pyramid' && num('pyrCount')>2500) fps=Math.min(fps,30);
       if(mode==='pyramid' && num('pyrCount')>7000) fps=Math.min(fps,24);
@@ -829,15 +901,10 @@
       const frameMs=1000/fps;
       const totalFrames=Math.max(2, Math.ceil(d/frameMs)+1);
 
-      // captureStream(0) = браузер НЕ снимает canvas сам.
-      // Каждый кадр отправляется в поток только после drawAt() через requestFrame().
-      // Это устраняет перемешивание и случайные промежуточные кадры.
       stream=canvas.captureStream(0);
       const track=stream.getVideoTracks()[0];
       const manualFrames=track && typeof track.requestFrame==='function';
 
-      // Старые браузеры: запасной режим. Preview-loop всё равно заморожен,
-      // поэтому даже fallback больше не конфликтует с экспортом.
       if(!manualFrames){
         stream.getTracks().forEach(t=>t.stop());
         stream=canvas.captureStream(fps);
@@ -846,36 +913,41 @@
       const videoTrack=stream.getVideoTracks()[0];
       if(videoTrack && 'contentHint' in videoTrack) videoTrack.contentHint='motion';
 
-      let mime='video/webm;codecs=vp9';
-      if(!MediaRecorder.isTypeSupported(mime)){
-        mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
-          ? 'video/webm;codecs=vp8'
-          : 'video/webm';
+      const format=pickRecordingFormat();
+      const options={videoBitsPerSecond:Math.max(
+        10_000_000,
+        Math.min(36_000_000,Math.round(canvas.width*canvas.height*fps*0.22))
+      )};
+      if(format.mime) options.mimeType=format.mime;
+
+      let rec;
+      try{
+        rec=new MediaRecorder(stream,options);
+      }catch(err){
+        // Некоторые Safari заявляют поддержку codec-параметра, но принимают только video/mp4.
+        if(isIOSLike()){
+          rec=new MediaRecorder(stream,{mimeType:'video/mp4',videoBitsPerSecond:options.videoBitsPerSecond});
+          format.mime='video/mp4';
+          format.ext='mp4';
+        }else{
+          throw err;
+        }
       }
 
-      const pixels=canvas.width*canvas.height;
-      const bitrate=Math.max(10_000_000, Math.min(36_000_000, Math.round(pixels*fps*0.22)));
-      const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:bitrate});
       const chunks=[];
       let recorderError=null;
-
       rec.ondataavailable=e=>{ if(e.data && e.data.size) chunks.push(e.data); };
       rec.onerror=e=>{ recorderError=e.error || new Error('Ошибка MediaRecorder'); };
       const done=new Promise(resolve=>rec.addEventListener('stop',resolve,{once:true}));
 
-      // Первый кадр готовим ДО старта записи.
       drawAt(0);
       rec.start(500);
-
-      // Даём recorder один event-loop, затем начинаем строго последовательную запись.
       await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
 
       const wallStart=performance.now();
 
       for(let i=0;i<totalFrames;i++){
         const animationTime=Math.min(i*frameMs,d);
-
-        // Один номер кадра = один конкретный момент анимации.
         drawAt(animationTime);
 
         if(manualFrames){
@@ -886,20 +958,16 @@
         btn.textContent=`● Экспорт ${pct}%`;
         $('status').textContent=`Запись ${fps} FPS • кадр ${i+1}/${totalFrames}`;
 
-        // Держим MediaRecorder в реальном времени, но playhead вычисляем
-        // НЕ по performance.now(), а только по номеру кадра.
-        // Поэтому микролаг больше не прыгает вперёд по анимации.
         const target=wallStart+(i+1)*frameMs;
         const wait=target-performance.now();
         if(wait>1) await sleep(wait);
         else await sleep(0);
       }
 
-      // Последнему кадру нужно время попасть в энкодер до stop().
-      await sleep(Math.max(80,frameMs*3));
+      await sleep(Math.max(100,frameMs*3));
       if(rec.state==='recording'){
         try{ rec.requestData(); }catch{}
-        await sleep(25);
+        await sleep(35);
         rec.stop();
       }
       await done;
@@ -907,17 +975,36 @@
       if(recorderError) throw recorderError;
       if(!chunks.length) throw new Error('Браузер не создал видеоданные.');
 
-      const blob=new Blob(chunks,{type:mime});
-      if(blob.size<1000) throw new Error('Получился пустой или повреждённый WebM.');
+      const actualMime=(rec.mimeType || format.mime || chunks[0]?.type || '').toLowerCase();
+      const ext=actualMime.includes('mp4') ? 'mp4' : 'webm';
+      const blobType=actualMime || (ext==='mp4'?'video/mp4':'video/webm');
+      const blob=new Blob(chunks,{type:blobType});
+      if(blob.size<1000) throw new Error('Получился пустой или повреждённый видеофайл.');
 
+      const filename=`sprite-effect-${fps}fps.${ext}`;
+      const file=new File([blob],filename,{type:blobType,lastModified:Date.now()});
       const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');
-      a.href=url;
-      a.download=`sprite-effect-${fps}fps.webm`;
-      a.click();
-      setTimeout(()=>URL.revokeObjectURL(url),15000);
+      pendingExportUrl=url;
+      pendingExport={file,url};
 
-      $('status').textContent=`Готово • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ`;
+      if(isIOSLike()){
+        // На iOS не инициируем скачивание автоматически: после долгого async-рендера
+        // Safari теряет user activation. Пользователь делает второй тап по кнопке,
+        // после чего открывается системное меню Share/Save to Files с нормальным именем.
+        $('mobileSave').style.display='';
+        $('mobileSave').textContent=`📱 Сохранить ${ext.toUpperCase()}`;
+        $('status').textContent=`Готово • ${ext.toUpperCase()} • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ — нажмите «Сохранить»`;
+      }else{
+        const a=document.createElement('a');
+        a.href=url;
+        a.download=filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        $('mobileSave').style.display='';
+        $('mobileSave').textContent='Скачать ещё раз';
+        $('status').textContent=`Готово • ${ext.toUpperCase()} • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ`;
+      }
     }catch(err){
       console.error(err);
       alert('Ошибка экспорта: '+(err?.message || err));
@@ -929,7 +1016,6 @@
       btn.textContent=oldBtn;
       btn.disabled=false;
 
-      // Возвращаем обычный preview уже ПОСЛЕ закрытия экспортного потока.
       startedAt=performance.now();
       paused=false;
       $('pause').textContent='⏸ Пауза';
