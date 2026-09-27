@@ -83,7 +83,7 @@ const log=(m,reset=false)=>{if(reset)$('log').textContent='';$('log').textConten
 
 async function loadFFmpeg(){
   if(loaded)return;
-  $('load').disabled=true; log('Загрузка FFmpeg.wasm...',true);
+  $('load').disabled=true; log('Загрузка FFmpeg.wasm (локальный Worker)...',true);
   try{
     ffmpeg=new FFmpeg();
     ffmpeg.on('log',({message})=>{if(message)log(message)});
@@ -91,7 +91,7 @@ async function loadFFmpeg(){
     const base='https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
     const coreURL=await toBlobURL(base+'/ffmpeg-core.js','text/javascript');
     const wasmURL=await toBlobURL(base+'/ffmpeg-core.wasm','application/wasm');
-    await ffmpeg.load({coreURL,wasmURL});
+    await ffmpeg.load({coreURL,wasmURL,classWorkerURL:'./ffmpeg-worker.js'});
     loaded=true; $('convert').disabled=false; log('✓ FFmpeg загружен.');
   }catch(e){log('Ошибка загрузки: '+(e?.message||e));$('load').disabled=false;throw e}
 }
