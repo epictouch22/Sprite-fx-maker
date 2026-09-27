@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.9</title>
+<title>Sprite FX Maker v2.9.1</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.9</h1>
+    <h1>Sprite FX Maker v2.9.1</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -271,7 +271,7 @@
       </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.9: к счётчику можно добавить картинку слева от числа. Добавлен пакетный MOV-экспорт по шагам: например 0→1000 с шагом 100 автоматически создаёт и скачивает 10 видео.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.9.1: исправлен MOV-экспорт — если в настройках или пользовательском пресете счётчик выключен, он больше не включается сам во время рендера. Пакетный счёт по шагам по-прежнему включает счётчик специально.</div>
     </div>
   </aside>
 
@@ -1282,8 +1282,10 @@
 
     $('counterStart').value=rangeStart;
     $('counterEnd').value=rangeEnd;
-    $('counterEnabled').checked=true;
-
+    // IMPORTANT: do not force the counter on here.
+    // Normal MOV export must respect the current preset/settings.
+    // Batch counter export explicitly enables it before calling this helper.
+    
     try{
       let fps=Number($('exportFps').value)||30;
       fps=Math.min(fps,30);
