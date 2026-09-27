@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.8</title>
+<title>Sprite FX Maker v2.9</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.8</h1>
+    <h1>Sprite FX Maker v2.9</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -179,6 +179,18 @@
         <div class="row wide"><label>Префикс</label><input id="counterPrefix" type="text" value=""></div>
         <div class="row wide"><label>Суффикс</label><input id="counterSuffix" type="text" value=""></div>
       </div>
+      <div class="check"><input id="counterPrefixImageEnabled" type="checkbox"><label for="counterPrefixImageEnabled">Картинка перед счётчиком</label></div>
+      <label class="upload" for="counterPrefixImageInput">＋ Загрузить картинку-префикс PNG/JPG/WebP</label>
+      <input id="counterPrefixImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+      <div id="counterPrefixImageStatus" class="small" style="margin-top:7px">Картинка не загружена.</div>
+      <div class="inline2">
+        <div class="row wide"><label>Высота картинки, px</label><input id="counterPrefixImageSize" type="number" min="4" max="1000" value="110"></div>
+        <div class="row wide"><label>Отступ до текста, px</label><input id="counterPrefixImageGap" type="number" min="-500" max="1000" value="12"></div>
+      </div>
+      <div class="inline2">
+        <div class="row wide"><label>Смещение картинки X</label><input id="counterPrefixImageX" type="number" min="-2000" max="2000" value="0"></div>
+        <div class="row wide"><label>Смещение картинки Y</label><input id="counterPrefixImageY" type="number" min="-2000" max="2000" value="0"></div>
+      </div>
       <div class="row"><label>Размер текста, px</label><input id="counterFontSize" type="number" min="6" max="1000" value="120"></div>
       <div class="row"><label>Позиция X, %</label><input id="counterX" type="number" min="0" max="100" value="50"></div>
       <div class="row"><label>Позиция Y, %</label><input id="counterY" type="number" min="0" max="100" value="12"></div>
@@ -201,6 +213,17 @@
       <label class="upload" for="fontInput">＋ Загрузить свой шрифт TTF/OTF/WOFF</label>
       <input id="fontInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
       <div id="fontStatus" class="small" style="margin-top:7px">Пользовательский шрифт не загружен.</div>
+
+      <div style="border-top:1px solid var(--line);margin:14px 0 10px"></div>
+      <h2 style="margin-top:0">Пакетный счёт</h2>
+      <div class="small" style="margin-bottom:8px">Пример: 0 → 1000, шаг 100 = 10 отдельных MOV: 0→100, 100→200 … 900→1000.</div>
+      <div class="inline2">
+        <div class="row wide"><label>От</label><input id="batchCounterStart" type="number" value="0"></div>
+        <div class="row wide"><label>До</label><input id="batchCounterEnd" type="number" value="1000"></div>
+      </div>
+      <div class="row"><label>Шаг</label><input id="batchCounterStep" type="number" min="0.000001" value="100"></div>
+      <button id="batchCounterExport" class="good" style="width:100%;margin-top:6px">⚡ Скачать все MOV по шагам</button>
+      <div id="batchCounterInfo" class="small" style="margin-top:7px">Будет создано 10 видео.</div>
     </div>
 
     <div class="group">
@@ -248,7 +271,7 @@
       </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.8: MOV α теперь экспортируется прямо из редактора одним нажатием. ZIP и повторная загрузка кадров больше не нужны. Первый запуск только скачивает FFmpeg.wasm.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.9: к счётчику можно добавить картинку слева от числа. Добавлен пакетный MOV-экспорт по шагам: например 0→1000 с шагом 100 автоматически создаёт и скачивает 10 видео.</div>
     </div>
   </aside>
 
@@ -290,6 +313,8 @@
   let exportInProgress = false;
   let customFontName = null;
   let customFontUrl = null;
+  let counterPrefixImage = null;
+  let counterPrefixImageUrl = null;
   let lastHeavyFrame = 0;
   let pendingExport = null;
   let pendingExportUrl = null;
@@ -337,7 +362,7 @@
     'pyrCount','pyrRowInterval','pyrGapXFactor','pyrGapYFactor','pyrMargin','pyrAutoFit','pyrHold','pyrFlyTime','pyrFly','pyrSide',
     'burstCount','burstInterval','burstLife','speedMin','speedMax','gravity','spin',
     'counterEnabled','counterMode','counterStart','counterEnd','counterDuration','counterDelay','counterDecimals','counterEase',
-    'counterGrouping','counterPrefix','counterSuffix','counterFontSize','counterX','counterY','counterColor','counterStrokeColor',
+    'counterGrouping','counterPrefix','counterSuffix','counterPrefixImageEnabled','counterPrefixImageSize','counterPrefixImageGap','counterPrefixImageX','counterPrefixImageY','counterFontSize','counterX','counterY','counterColor','counterStrokeColor',
     'counterStrokeWidth','counterShadow','counterShadowBlur','fontSelect','format','exportFps','movCodec','exportBgMode','exportBgColor','checker'
   ];
 
@@ -493,6 +518,26 @@
       restart();
     }catch(err){
       alert('Не удалось загрузить шрифт: '+err.message);
+    }
+  });
+
+  $('counterPrefixImageInput').addEventListener('change', async e=>{
+    const file=e.target.files[0]; if(!file) return;
+    try{
+      if(counterPrefixImageUrl) URL.revokeObjectURL(counterPrefixImageUrl);
+      counterPrefixImageUrl=URL.createObjectURL(file);
+      const img=new Image();
+      await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=counterPrefixImageUrl;});
+      counterPrefixImage=img;
+      $('counterPrefixImageEnabled').checked=true;
+      $('counterPrefixImageStatus').textContent='Загружено: '+file.name+' • '+img.naturalWidth+'×'+img.naturalHeight;
+      restart();
+    }catch(err){
+      counterPrefixImage=null;
+      $('counterPrefixImageStatus').textContent='Ошибка загрузки картинки.';
+      alert('Не удалось загрузить картинку-префикс: '+(err?.message||err));
+    }finally{
+      e.target.value='';
     }
   });
 
@@ -772,6 +817,30 @@
     ctx.textBaseline='middle';
     ctx.lineJoin='round';
 
+    const textWidth=ctx.measureText(text).width;
+    const useImage=!!(counterPrefixImage && $('counterPrefixImageEnabled').checked);
+    let imageH=0, imageW=0, gap=0;
+    if(useImage){
+      imageH=Math.max(4,num('counterPrefixImageSize'));
+      const ratio=(counterPrefixImage.naturalWidth||1)/(counterPrefixImage.naturalHeight||1);
+      imageW=imageH*ratio;
+      gap=num('counterPrefixImageGap');
+    }
+
+    const totalWidth=textWidth+(useImage?imageW+gap:0);
+    const left=x-totalWidth/2;
+    const textX=left+(useImage?imageW+gap:0)+textWidth/2;
+
+    if(useImage){
+      ctx.save();
+      ctx.shadowBlur=0;
+      ctx.globalAlpha=1;
+      const ix=left+imageW/2+num('counterPrefixImageX');
+      const iy=y+num('counterPrefixImageY');
+      ctx.drawImage(counterPrefixImage,ix-imageW/2,iy-imageH/2,imageW,imageH);
+      ctx.restore();
+    }
+
     if($('counterShadow').checked){
       ctx.shadowColor='rgba(0,0,0,.75)';
       ctx.shadowBlur=num('counterShadowBlur');
@@ -782,10 +851,10 @@
     if(sw>0){
       ctx.lineWidth=sw*2;
       ctx.strokeStyle=$('counterStrokeColor').value;
-      ctx.strokeText(text,x,y);
+      ctx.strokeText(text,textX,y);
     }
     ctx.fillStyle=$('counterColor').value;
-    ctx.fillText(text,x,y);
+    ctx.fillText(text,textX,y);
     ctx.restore();
   }
 
@@ -927,6 +996,7 @@
     $('exportWebm').disabled = locked;
     $('exportPngZip').disabled = locked;
     $('openMovConverter').disabled = locked;
+    $('batchCounterExport').disabled = locked;
   }
 
   $('png').onclick=()=>{
@@ -1202,43 +1272,32 @@
 
   $('exportPngZip').onclick=exportPngSequence;
 
-  async function exportAlphaMovDirect(){
-    if(exportInProgress) return;
-    clearPendingExport();
+  async function buildAlphaMovBlob(rangeStart,rangeEnd,{onProgress,filenameBase}={}){
+    const ff=await ensureAlphaFFmpeg();
+    await wipeAlphaFFmpegFS(ff);
 
-    const btn=$('openMovConverter');
-    const oldBtn=btn.textContent;
-    let ff=null;
+    const oldStart=$('counterStart').value;
+    const oldEnd=$('counterEnd').value;
+    const oldEnabled=$('counterEnabled').checked;
+
+    $('counterStart').value=rangeStart;
+    $('counterEnd').value=rangeEnd;
+    $('counterEnabled').checked=true;
 
     try{
-      exportInProgress=true;
-      setExportUiLocked(true);
-      btn.disabled=false;
-      btn.textContent='🎬 Подготовка…';
-      forcedExportBgMode='transparent';
-
-      ff=await ensureAlphaFFmpeg();
-      await wipeAlphaFFmpegFS(ff);
-
       let fps=Number($('exportFps').value)||30;
-      fps=Math.min(fps,30); // PNG -> WASM can be very RAM-heavy at 60 FPS.
+      fps=Math.min(fps,30);
       const d=Math.max(1,durationMs());
       const frameMs=1000/fps;
       const totalFrames=Math.max(2,Math.ceil(d/frameMs)+1);
 
-      $('status').textContent=`MOV α • рендер кадров 0/${totalFrames}`;
-
       for(let i=0;i<totalFrames;i++){
         const t=Math.min(i*frameMs,d);
         drawAt(t);
-        const blob=await canvasPngBlob();
-        const bytes=new Uint8Array(await blob.arrayBuffer());
-        const name=`frame-${String(i).padStart(5,'0')}.png`;
-        await ff.writeFile(name,bytes);
-
-        const pct=Math.round((i+1)/totalFrames*55);
-        btn.textContent=`🎬 MOV α ${pct}%`;
-        $('status').textContent=`MOV α • кадр ${i+1}/${totalFrames}`;
+        const pngBlob=await canvasPngBlob();
+        const bytes=new Uint8Array(await pngBlob.arrayBuffer());
+        await ff.writeFile(`frame-${String(i).padStart(5,'0')}.png`,bytes);
+        if(onProgress) onProgress({phase:'frames',index:i+1,total:totalFrames,pct:(i+1)/totalFrames*.62});
         await sleep(0);
       }
 
@@ -1249,48 +1308,76 @@
           ? ['qtrle','png','prores']
           : ['png','qtrle','prores'];
 
-      let used=null;
-      let out=null;
-      for(const codec of order){
-        out=`sprite-effect-alpha-${codec}-${fps}fps.mov`;
-        $('status').textContent=`Кодирую ${alphaCodecName(codec)}…`;
-        btn.textContent=`🎬 ${alphaCodecName(codec)}…`;
+      let used=null,out=null;
+      const safeBase=(filenameBase||`count_${rangeStart}_${rangeEnd}`)
+        .replace(/[^a-zA-Z0-9._-]+/g,'_');
+
+      for(let ci=0;ci<order.length;ci++){
+        const codec=order[ci];
+        out=`${safeBase}-${codec}-${fps}fps.mov`;
+        if(onProgress) onProgress({phase:'encode',codec,pct:.65+ci*.08});
         let code=1;
-        try{
-          code=await ff.exec(alphaMovCommand(codec,fps,out));
-        }catch(err){
-          console.warn('Codec failed',codec,err);
-          code=1;
-        }
+        try{ code=await ff.exec(alphaMovCommand(codec,fps,out)); }
+        catch(err){ console.warn('Codec failed',codec,err); }
         if(code===0){ used=codec; break; }
         try{ await ff.deleteFile(out); }catch{}
       }
 
-      if(!used) throw new Error('Эта браузерная сборка FFmpeg не смогла создать ProRes/qtrle/PNG MOV.');
+      if(!used) throw new Error('Не удалось создать ProRes/qtrle/PNG MOV.');
 
       const data=await ff.readFile(out);
       const bytes=data instanceof Uint8Array?data:new Uint8Array(data);
       const blob=new Blob([bytes],{type:'video/quicktime'});
       if(blob.size<1000) throw new Error('FFmpeg создал пустой MOV.');
 
-      const file=new File([blob],out,{type:'video/quicktime',lastModified:Date.now()});
-      const url=URL.createObjectURL(blob);
+      if(onProgress) onProgress({phase:'done',codec:used,pct:1});
+      return {blob,out,used,fps};
+    }finally{
+      $('counterStart').value=oldStart;
+      $('counterEnd').value=oldEnd;
+      $('counterEnabled').checked=oldEnabled;
+      try{ await wipeAlphaFFmpegFS(ff); }catch{}
+    }
+  }
+
+  async function exportAlphaMovDirect(){
+    if(exportInProgress) return;
+    clearPendingExport();
+
+    const btn=$('openMovConverter');
+    const oldBtn=btn.textContent;
+    try{
+      exportInProgress=true;
+      setExportUiLocked(true);
+      btn.disabled=false;
+      forcedExportBgMode='transparent';
+
+      const a=num('counterStart'), b=num('counterEnd');
+      const result=await buildAlphaMovBlob(a,b,{
+        filenameBase:`count_${a}_${b}`,
+        onProgress:p=>{
+          const pct=Math.round((p.pct||0)*100);
+          btn.textContent=`🎬 MOV α ${pct}%`;
+          $('status').textContent=p.phase==='frames'
+            ? `MOV α • кадр ${p.index}/${p.total}`
+            : p.phase==='encode'
+              ? `Кодирую ${alphaCodecName(p.codec)}…`
+              : 'MOV α готов';
+        }
+      });
+
+      const file=new File([result.blob],result.out,{type:'video/quicktime',lastModified:Date.now()});
+      const url=URL.createObjectURL(result.blob);
       pendingExportUrl=url;
       pendingExport={file,url};
 
       $('mobileSave').style.display='';
       $('mobileSave').textContent='💾 Сохранить MOV α';
-      $('status').textContent=`Готово • ${alphaCodecName(used)} • alpha • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ`;
+      $('status').textContent=`Готово • ${alphaCodecName(result.used)} • alpha • ${result.fps} FPS • ${(result.blob.size/1024/1024).toFixed(1)} МБ`;
 
-      const a=document.createElement('a');
-      a.href=url;
-      a.download=out;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      // Clean frame files after output is safely read to reduce WASM memory usage.
-      try{ await wipeAlphaFFmpegFS(ff); }catch{}
+      const link=document.createElement('a');
+      link.href=url; link.download=result.out;
+      document.body.appendChild(link); link.click(); link.remove();
     }catch(err){
       console.error(err);
       alert('Ошибка MOV α: '+(err?.message||err));
@@ -1308,6 +1395,108 @@
   }
 
   $('openMovConverter').onclick=exportAlphaMovDirect;
+
+  function getBatchSegments(){
+    const start=Number($('batchCounterStart').value);
+    const end=Number($('batchCounterEnd').value);
+    const rawStep=Math.abs(Number($('batchCounterStep').value));
+    if(!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(rawStep)||rawStep<=0) return [];
+    if(start===end) return [];
+    const dir=end>start?1:-1;
+    const step=rawStep*dir;
+    const segs=[];
+    let a=start;
+    let guard=0;
+    while((dir>0?a<end:a>end) && guard<500){
+      let b=a+step;
+      if(dir>0 && b>end) b=end;
+      if(dir<0 && b<end) b=end;
+      segs.push([a,b]);
+      a=b;
+      guard++;
+    }
+    return segs;
+  }
+
+  function updateBatchInfo(){
+    const segs=getBatchSegments();
+    $('batchCounterInfo').textContent=segs.length
+      ? `Будет создано ${segs.length} видео: ${segs.slice(0,3).map(x=>x[0]+'→'+x[1]).join(', ')}${segs.length>3?' …':''}`
+      : 'Проверь значения «От», «До» и «Шаг».';
+  }
+  ['batchCounterStart','batchCounterEnd','batchCounterStep'].forEach(id=>$(id).addEventListener('input',updateBatchInfo));
+  updateBatchInfo();
+
+  async function exportCounterBatch(){
+    if(exportInProgress) return;
+    const segs=getBatchSegments();
+    if(!segs.length){ alert('Неверные значения пакетного счёта.'); return; }
+    if(segs.length>100 && !confirm(`Будет создано ${segs.length} видео. Продолжить?`)) return;
+
+    const btn=$('batchCounterExport');
+    const oldBtn=btn.textContent;
+    const originalStart=$('counterStart').value;
+    const originalEnd=$('counterEnd').value;
+    const originalEnabled=$('counterEnabled').checked;
+
+    try{
+      exportInProgress=true;
+      setExportUiLocked(true);
+      btn.disabled=false;
+      forcedExportBgMode='transparent';
+
+      await ensureAlphaFFmpeg();
+
+      for(let i=0;i<segs.length;i++){
+        const [a,b]=segs[i];
+        $('counterStart').value=a;
+        $('counterEnd').value=b;
+        $('counterEnabled').checked=true;
+
+        const result=await buildAlphaMovBlob(a,b,{
+          filenameBase:`count_${a}_to_${b}`,
+          onProgress:p=>{
+            const local=Math.round((p.pct||0)*100);
+            btn.textContent=`⚡ ${i+1}/${segs.length} • ${local}%`;
+            $('status').textContent=`Пакет ${i+1}/${segs.length} • ${a} → ${b} • ${p.phase==='encode'?'кодирование':'рендер'}`;
+          }
+        });
+
+        const url=URL.createObjectURL(result.blob);
+        const link=document.createElement('a');
+        link.href=url;
+        link.download=result.out;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),60000);
+
+        $('status').textContent=`Скачано ${i+1}/${segs.length}: ${a} → ${b}`;
+        await sleep(350);
+      }
+
+      $('status').textContent=`Готово • автоматически создано ${segs.length} MOV. Если браузер скачал только первый — разреши «несколько автоматических скачиваний» для сайта.`;
+      alert(`Готово: создано ${segs.length} видео. Если Chrome спросит разрешение на несколько скачиваний — нажми «Разрешить».`);
+    }catch(err){
+      console.error(err);
+      alert('Ошибка пакетного экспорта: '+(err?.message||err));
+      $('status').textContent='Пакетный экспорт остановлен';
+    }finally{
+      $('counterStart').value=originalStart;
+      $('counterEnd').value=originalEnd;
+      $('counterEnabled').checked=originalEnabled;
+      forcedExportBgMode=null;
+      exportInProgress=false;
+      setExportUiLocked(false);
+      btn.textContent=oldBtn;
+      btn.disabled=false;
+      startedAt=performance.now();
+      paused=false;
+      $('pause').textContent='⏸ Пауза';
+    }
+  }
+
+  $('batchCounterExport').onclick=exportCounterBatch;
 
     async function exportVideo(target){
     if(exportInProgress) return;
@@ -1482,7 +1671,7 @@
   });
 
   // More responsive numeric editing without restarting on every keystroke where possible.
-  ['pyrCount','pyrGapXFactor','pyrGapYFactor','pyrMargin','size','counterStart','counterEnd','counterDuration','counterFontSize','counterX','counterY']
+  ['pyrCount','pyrGapXFactor','pyrGapYFactor','pyrMargin','size','counterStart','counterEnd','counterDuration','counterFontSize','counterX','counterY','counterPrefixImageSize','counterPrefixImageGap','counterPrefixImageX','counterPrefixImageY']
     .forEach(id=>$(id).addEventListener('input',()=>{ if(id.startsWith('pyr')||id==='size') updatePyrInfo(); }));
 
   function setupMobileExportUi(){
