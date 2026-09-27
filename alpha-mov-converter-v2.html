@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Alpha MOV Converter v2 — Sprite FX Maker</title>
+<style>
+:root{--bg:#0d0f13;--panel:#161a20;--panel2:#1d222a;--line:#2a313b;--text:#f4f7fb;--muted:#98a2b3;--accent:#7c5cff;--ok:#20d57a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+.wrap{max-width:980px;margin:auto;padding:24px}.head{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:18px}
+h1{font-size:25px;margin:0}.sub{color:var(--muted);font-size:13px;margin-top:5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.row{margin:10px 0}label{display:block;font-size:12px;color:#cbd3df;margin-bottom:6px}
+input,select,button{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
+button{cursor:pointer}button.primary{background:var(--accent);border-color:transparent}button.good{background:var(--ok);border-color:transparent;color:#07140d;font-weight:700}button:disabled{opacity:.5;cursor:not-allowed}
+.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}.back{width:auto;padding:8px 12px;text-decoration:none;color:var(--text);border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.log{height:300px;overflow:auto;white-space:pre-wrap;background:#0a0d11;border:1px solid var(--line);border-radius:12px;padding:12px;color:#bec7d2;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
+.note{font-size:12px;color:var(--muted);line-height:1.5}progress{width:100%;height:12px;accent-color:var(--accent)}
+@media(max-width:720px){.grid{grid-template-columns:1fr}.actions{grid-template-columns:1fr}.head{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>🎬 MOV с прозрачностью v2</h1>
+      <div class="sub">Без CDN Worker: Worker запускается прямо с GitHub Pages, поэтому ошибки cross-origin быть не должно.</div>
+    </div>
+    <a class="back" href="./">← В редактор</a>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <div class="row">
+          <label>PNG ZIP α из Sprite FX Maker</label>
+          <input id="input" type="file" accept=".zip">
+        </div>
+        <div class="row">
+          <label>Формат MOV</label>
+          <select id="codec">
+            <option value="prores">ProRes 4444 — рекомендуемый</option>
+            <option value="qtrle">QuickTime Animation (qtrle)</option>
+            <option value="png">PNG MOV</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>FPS</label>
+          <input id="fps" type="number" min="1" max="60" value="30">
+        </div>
+        <div class="row">
+          <label>Имя файла</label>
+          <input id="name" value="sprite-effect-alpha">
+        </div>
+        <div class="actions">
+          <button id="load" class="primary">1. Загрузить FFmpeg</button>
+          <button id="convert" disabled>2. Конвертировать</button>
+          <button id="download" class="good" disabled>3. Скачать MOV</button>
+        </div>
+        <div class="row"><progress id="progress" max="1" value="0"></progress></div>
+        <div class="note">
+          Первый запуск скачивает FFmpeg.wasm. Обработка идёт локально. Эта версия вообще не импортирует класс FFmpeg с CDN:
+          локальный <code>ffmpeg-worker.js</code> создаётся с домена <code>epictouch22.github.io</code>.
+        </div>
+      </div>
+      <div>
+        <label>Лог</label>
+        <div id="log" class="log">Версия конвертера: v2 local-worker\nГотов. Выбери ZIP и нажми «Загрузить FFmpeg».</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script type="module">
+const $=id=>document.getElementById(id);
+let ffmpeg=null, loaded=false, resultBlob=null, resultName='';
+const log=(m,reset=false)=>{if(reset)$('log').textContent='';$('log').textContent+=($('log').textContent?'\n':'')+m;$('log').scrollTop=$('log').scrollHeight;};
+
+class LocalFFmpeg {
+  constructor(workerURL){
+    this.seq=1;
+    this.pending=new Map();
+    this.listeners={log:[],progress:[]};
+    this.worker=new Worker(workerURL,{type:'module'});
+    this.worker.onmessage=(ev)=>{
+      const msg=ev.data||{};
+      if(msg.type==='LOG'){ this.listeners.log.forEach(fn=>fn(msg.data||{})); return; }
+      if(msg.type==='PROGRESS'){ this.listeners.progress.forEach(fn=>fn(msg.data||{})); return; }
+      const p=this.pending.get(msg.id);
+      if(!p) return;
+      this.pending.delete(msg.id);
+      if(msg.type==='ERROR') p.reject(new Error(String(msg.data)));
+      else p.resolve(msg.data);
+    };
+    this.worker.onerror=(e)=>{
+      const err=new Error('Worker error: '+(e.message||'unknown'));
+      for(const p of this.pending.values()) p.reject(err);
+      this.pending.clear();
+    };
+  }
+  on(type,fn){ if(this.listeners[type]) this.listeners[type].push(fn); }
+  send(type,data,transfer=[]){
+    return new Promise((resolve,reject)=>{
+      const id=this.seq++;
+      this.pending.set(id,{resolve,reject});
+      this.worker.postMessage({id,type,data},transfer);
+    });
+  }
+  load(config){return this.send('LOAD',config)}
+  exec(args,timeout=-1){return this.send('EXEC',{args,timeout})}
+  writeFile(path,data){
+    const bytes=data instanceof Uint8Array?data:new Uint8Array(data);
+    return this.send('WRITE_FILE',{path,data:bytes},[bytes.buffer]);
+  }
+  readFile(path,encoding='binary'){return this.send('READ_FILE',{path,encoding})}
+  deleteFile(path){return this.send('DELETE_FILE',{path})}
+  listDir(path){return this.send('LIST_DIR',{path})}
+}
+
+async function blobURL(url,mime){
+  const res=await fetch(url,{cache:'force-cache'});
+  if(!res.ok) throw new Error('Не удалось скачать '+url+' — HTTP '+res.status);
+  const buf=await res.arrayBuffer();
+  return URL.createObjectURL(new Blob([buf],{type:mime}));
+}
+
+async function loadFFmpeg(){
+  if(loaded)return;
+  $('load').disabled=true;
+  log('Загрузка FFmpeg.wasm (same-origin Worker v2)...',true);
+  try{
+    const workerURL=new URL('./ffmpeg-worker.js?v=2',location.href).href;
+    log('Worker: '+workerURL);
+    ffmpeg=new LocalFFmpeg(workerURL);
+    ffmpeg.on('log',({message})=>{if(message)log(message)});
+    ffmpeg.on('progress',({progress})=>{$('progress').value=Math.max(0,Math.min(1,Number(progress)||0))});
+
+    const base='https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+    log('Скачиваю ffmpeg-core.js...');
+    const coreURL=await blobURL(base+'/ffmpeg-core.js','text/javascript');
+    log('Скачиваю ffmpeg-core.wasm...');
+    const wasmURL=await blobURL(base+'/ffmpeg-core.wasm','application/wasm');
+
+    await ffmpeg.load({coreURL,wasmURL});
+    loaded=true;
+    $('convert').disabled=false;
+    log('✓ FFmpeg загружен.');
+  }catch(e){
+    log('Ошибка загрузки: '+(e?.message||e));
+    $('load').disabled=false;
+    throw e;
+  }
+}
+
+async function unzipFrames(file){
+  const zip=await JSZip.loadAsync(file);
+  const names=Object.keys(zip.files).filter(n=>!zip.files[n].dir&&/\.png$/i.test(n)).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  if(!names.length)throw new Error('В ZIP нет PNG-кадров.');
+  const frames=[];
+  for(let i=0;i<names.length;i++){
+    const bytes=await zip.files[names[i]].async('uint8array');
+    frames.push({name:'frame-'+String(i).padStart(5,'0')+'.png',bytes});
+  }
+  return frames;
+}
+
+async function wipe(){
+  try{
+    const entries=await ffmpeg.listDir('/');
+    for(const e of entries){
+      if(!e.isDir&&e.name!=='.'&&e.name!=='..'){try{await ffmpeg.deleteFile('/'+e.name)}catch{}}
+    }
+  }catch{}
+}
+
+function commandFor(codec,fps,out){
+  const common=['-framerate',String(fps),'-i','frame-%05d.png'];
+  if(codec==='prores')return [...common,'-c:v','prores_ks','-profile:v','4444','-pix_fmt','yuva444p10le',out];
+  if(codec==='qtrle')return [...common,'-c:v','qtrle','-pix_fmt','argb',out];
+  return [...common,'-c:v','png','-pix_fmt','rgba',out];
+}
+const label=c=>c==='prores'?'ProRes 4444':c==='qtrle'?'qtrle':'PNG MOV';
+
+async function convert(){
+  const file=$('input').files[0];
+  if(!file){alert('Выбери PNG ZIP α.');return}
+  await loadFFmpeg();
+  $('convert').disabled=true;$('download').disabled=true;$('progress').value=0;resultBlob=null;
+  log('Подготовка...',true);
+  try{
+    await wipe();
+    const frames=await unzipFrames(file); log('Кадров: '+frames.length);
+    for(let i=0;i<frames.length;i++){
+      await ffmpeg.writeFile(frames[i].name,frames[i].bytes);
+      if(i%10===0||i===frames.length-1)log('Загружено кадров: '+(i+1)+'/'+frames.length);
+    }
+    const fps=Math.max(1,Math.min(60,Number($('fps').value)||30));
+    const requested=$('codec').value;
+    const fallbacks=requested==='prores'?['prores','qtrle','png']:requested==='qtrle'?['qtrle','png','prores']:['png','qtrle','prores'];
+    let success=false,used=null,out=null;
+    for(const codec of fallbacks){
+      out=($('name').value.trim()||'sprite-effect-alpha')+'-'+codec+'.mov';
+      log('Пробую '+label(codec)+'...');
+      const code=await ffmpeg.exec(commandFor(codec,fps,out));
+      if(code===0){success=true;used=codec;break}
+      log('Кодек '+label(codec)+' не сработал, пробую следующий.');
+      try{await ffmpeg.deleteFile(out)}catch{}
+    }
+    if(!success)throw new Error('Ни один alpha MOV-кодек не сработал в браузерной сборке FFmpeg.');
+    const data=await ffmpeg.readFile(out);
+    const bytes=data instanceof Uint8Array?data:new Uint8Array(data);
+    resultBlob=new Blob([bytes],{type:'video/quicktime'});
+    resultName=out;
+    $('download').disabled=false;$('progress').value=1;
+    log('✓ Готово: '+label(used)+' • '+(resultBlob.size/1024/1024).toFixed(1)+' МБ');
+  }catch(e){log('Ошибка: '+(e?.message||e))}
+  finally{$('convert').disabled=false}
+}
+
+$('load').onclick=()=>loadFFmpeg().catch(()=>{});
+$('convert').onclick=convert;
+$('download').onclick=()=>{
+  if(!resultBlob)return;
+  const u=URL.createObjectURL(resultBlob),a=document.createElement('a');
+  a.href=u;a.download=resultName||'sprite-effect-alpha.mov';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),15000);
+};
+</script>
+</body>
+</html>
