@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.4</title>
+<title>Sprite FX Maker v2.5</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.4</h1>
+    <h1>Sprite FX Maker v2.5</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -240,7 +240,7 @@
       </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.4: MP4 и WebM теперь отдельные кнопки. На iPhone используйте MP4; если выбран «Прозрачный», MP4 автоматически получит зелёный chroma key, потому что H.264 не хранит alpha.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.5: прозрачный WebM помечен как экспериментальный — Chromium часто кодирует прозрачный canvas как чёрный. Для гарантированной прозрачности добавлен экспорт PNG-последовательности в ZIP.</div>
     </div>
   </aside>
 
@@ -251,7 +251,8 @@
         <button id="pause">⏸ Пауза</button>
         <button id="png">PNG кадр</button>
         <button id="exportMp4" class="good">📱 Экспорт MP4</button>
-        <button id="exportWebm">✨ WebM с прозрачностью</button>
+        <button id="exportWebm">✨ WebM α (эксперимент)</button>
+        <button id="exportPngZip">🧩 PNG ZIP α</button>
         <button id="mobileSave" class="primary" style="display:none">📱 Сохранить файл</button>
       </div>
       <div id="status" class="status">Нет спрайтов — можно использовать только счётчик или загрузить PNG/JPG/WebP</div>
@@ -912,6 +913,7 @@
     $('png').disabled = locked;
     $('exportMp4').disabled = locked;
     $('exportWebm').disabled = locked;
+    $('exportPngZip').disabled = locked;
   }
 
   $('png').onclick=()=>{
@@ -926,7 +928,171 @@
     exportInProgress=was;
   };
 
-  async function exportVideo(target){
+  function crc32(bytes){
+    let table=crc32.table;
+    if(!table){
+      table=new Uint32Array(256);
+      for(let n=0;n<256;n++){
+        let c=n;
+        for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);
+        table[n]=c>>>0;
+      }
+      crc32.table=table;
+    }
+    let c=0xFFFFFFFF;
+    for(let i=0;i<bytes.length;i++) c=table[(c^bytes[i])&0xFF]^(c>>>8);
+    return (c^0xFFFFFFFF)>>>0;
+  }
+
+  function dosDateTime(date=new Date()){
+    const year=Math.max(1980,date.getFullYear());
+    const time=(date.getHours()<<11)|(date.getMinutes()<<5)|(date.getSeconds()>>1);
+    const day=(year-1980)<<9 | ((date.getMonth()+1)<<5) | date.getDate();
+    return {time,day};
+  }
+
+  function u16(v){ return [v&255,(v>>>8)&255]; }
+  function u32(v){ return [v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255]; }
+
+  function makeStoredZip(files){
+    const enc=new TextEncoder();
+    const chunks=[];
+    const central=[];
+    let offset=0;
+    const dt=dosDateTime();
+
+    for(const file of files){
+      const nameBytes=enc.encode(file.name);
+      const data=file.bytes;
+      const crc=crc32(data);
+
+      const local=new Uint8Array([
+        ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0),
+        ...u16(dt.time), ...u16(dt.day), ...u32(crc),
+        ...u32(data.length), ...u32(data.length),
+        ...u16(nameBytes.length), ...u16(0)
+      ]);
+      chunks.push(local,nameBytes,data);
+
+      const cen=new Uint8Array([
+        ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0),
+        ...u16(dt.time), ...u16(dt.day), ...u32(crc),
+        ...u32(data.length), ...u32(data.length),
+        ...u16(nameBytes.length), ...u16(0), ...u16(0),
+        ...u16(0), ...u16(0), ...u32(0), ...u32(offset)
+      ]);
+      central.push(cen,nameBytes);
+      offset += local.length + nameBytes.length + data.length;
+    }
+
+    let centralSize=0;
+    for(const c of central) centralSize+=c.length;
+    chunks.push(...central);
+
+    const end=new Uint8Array([
+      ...u32(0x06054b50), ...u16(0), ...u16(0),
+      ...u16(files.length), ...u16(files.length),
+      ...u32(centralSize), ...u32(offset), ...u16(0)
+    ]);
+    chunks.push(end);
+    return new Blob(chunks,{type:'application/zip'});
+  }
+
+  function canvasPngBlob(){
+    return new Promise((resolve,reject)=>{
+      canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Не удалось создать PNG кадр.')),'image/png');
+    });
+  }
+
+  async function exportPngSequence(){
+    if(exportInProgress) return;
+    clearPendingExport();
+
+    const btn=$('exportPngZip');
+    const oldBtn=btn.textContent;
+    let files=[];
+
+    try{
+      exportInProgress=true;
+      setExportUiLocked(true);
+      btn.disabled=false;
+      forcedExportBgMode='transparent';
+
+      let fps=Number($('exportFps').value)||30;
+      // PNG sequence is heavy; cap at 30 FPS to keep RAM reasonable.
+      fps=Math.min(fps,30);
+
+      const d=Math.max(1,durationMs());
+      const frameMs=1000/fps;
+      const totalFrames=Math.max(2,Math.ceil(d/frameMs)+1);
+
+      $('status').textContent=`PNG α • 0/${totalFrames}`;
+
+      for(let i=0;i<totalFrames;i++){
+        const t=Math.min(i*frameMs,d);
+        drawAt(t); // transparent canvas: no checker and no export background
+        const blob=await canvasPngBlob();
+        const bytes=new Uint8Array(await blob.arrayBuffer());
+        files.push({
+          name:`frames/frame-${String(i).padStart(5,'0')}.png`,
+          bytes
+        });
+
+        const pct=Math.round((i+1)/totalFrames*100);
+        btn.textContent=`🧩 PNG ZIP ${pct}%`;
+        $('status').textContent=`PNG α • кадр ${i+1}/${totalFrames}`;
+        await sleep(0);
+      }
+
+      const manifest=new TextEncoder().encode(JSON.stringify({
+        fps,
+        width:canvas.width,
+        height:canvas.height,
+        frames:totalFrames,
+        duration_ms:d,
+        alpha:true
+      },null,2));
+      files.push({name:'sequence.json',bytes:manifest});
+
+      const zip=makeStoredZip(files);
+      const filename=`sprite-effect-alpha-${fps}fps.zip`;
+      const file=new File([zip],filename,{type:'application/zip',lastModified:Date.now()});
+      const url=URL.createObjectURL(zip);
+      pendingExportUrl=url;
+      pendingExport={file,url};
+
+      $('mobileSave').style.display='';
+      $('mobileSave').textContent='💾 Сохранить PNG ZIP';
+      $('status').textContent=`Готово • PNG sequence α • ${fps} FPS • ${(zip.size/1024/1024).toFixed(1)} МБ`;
+
+      if(!isIOSLike()){
+        const a=document.createElement('a');
+        a.href=url;
+        a.download=filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    }catch(err){
+      console.error(err);
+      alert('Ошибка PNG-экспорта: '+(err?.message||err));
+      $('status').textContent='PNG-экспорт не удался';
+    }finally{
+      forcedExportBgMode=null;
+      exportInProgress=false;
+      setExportUiLocked(false);
+      btn.textContent=oldBtn;
+      btn.disabled=false;
+      files=[];
+      startedAt=performance.now();
+      paused=false;
+      $('pause').textContent='⏸ Пауза';
+    }
+  }
+
+  $('exportPngZip').onclick=exportPngSequence;
+
+    async function exportVideo(target){
     if(exportInProgress) return;
     if(!('MediaRecorder' in window)){
       alert('Этот браузер не поддерживает запись видео.');
