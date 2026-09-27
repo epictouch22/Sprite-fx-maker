@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.7</title>
+<title>Sprite FX Maker v2.8</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.7</h1>
+    <h1>Sprite FX Maker v2.8</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -223,6 +223,14 @@
         </select>
       </div>
       <div class="row">
+        <label>MOV alpha</label>
+        <select id="movCodec">
+          <option value="prores">ProRes 4444</option>
+          <option value="qtrle">qtrle / Animation</option>
+          <option value="png">PNG MOV</option>
+        </select>
+      </div>
+      <div class="row">
         <label>Фон видео</label>
         <select id="exportBgMode">
           <option value="transparent">Прозрачный (WebM)</option>
@@ -240,7 +248,7 @@
       </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.7: MOV-конвертер переведён на локальный same-origin Worker без импорта класса FFmpeg с CDN. Это убирает блокировку Worker на GitHub Pages.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.8: MOV α теперь экспортируется прямо из редактора одним нажатием. ZIP и повторная загрузка кадров больше не нужны. Первый запуск только скачивает FFmpeg.wasm.</div>
     </div>
   </aside>
 
@@ -253,7 +261,7 @@
         <button id="exportMp4" class="good">📱 Экспорт MP4</button>
         <button id="exportWebm">✨ WebM α (эксперимент)</button>
         <button id="exportPngZip">🧩 PNG ZIP α</button>
-        <button id="openMovConverter">🎬 MOV с прозрачностью</button>
+        <button id="openMovConverter" class="good">🎬 MOV α — автоматически</button>
         <button id="mobileSave" class="primary" style="display:none">📱 Сохранить файл</button>
       </div>
       <div id="status" class="status">Нет спрайтов — можно использовать только счётчик или загрузить PNG/JPG/WebP</div>
@@ -286,6 +294,9 @@
   let pendingExport = null;
   let pendingExportUrl = null;
   let forcedExportBgMode = null;
+  let alphaFfmpeg = null;
+  let alphaFfmpegLoaded = false;
+  let alphaCoreBlobURLs = [];
 
   const builtIns = {
     'Базовый: Душа': {
@@ -327,7 +338,7 @@
     'burstCount','burstInterval','burstLife','speedMin','speedMax','gravity','spin',
     'counterEnabled','counterMode','counterStart','counterEnd','counterDuration','counterDelay','counterDecimals','counterEase',
     'counterGrouping','counterPrefix','counterSuffix','counterFontSize','counterX','counterY','counterColor','counterStrokeColor',
-    'counterStrokeWidth','counterShadow','counterShadowBlur','fontSelect','format','exportFps','exportBgMode','exportBgColor','checker'
+    'counterStrokeWidth','counterShadow','counterShadowBlur','fontSelect','format','exportFps','movCodec','exportBgMode','exportBgColor','checker'
   ];
 
   function readControl(id){
@@ -930,6 +941,103 @@
     exportInProgress=was;
   };
 
+  class LocalAlphaFFmpeg {
+    constructor(workerURL){
+      this.seq=1;
+      this.pending=new Map();
+      this.listeners={log:[],progress:[]};
+      this.worker=new Worker(workerURL,{type:'module'});
+      this.worker.onmessage=(ev)=>{
+        const msg=ev.data||{};
+        if(msg.type==='LOG'){ this.listeners.log.forEach(fn=>fn(msg.data||{})); return; }
+        if(msg.type==='PROGRESS'){ this.listeners.progress.forEach(fn=>fn(msg.data||{})); return; }
+        const p=this.pending.get(msg.id);
+        if(!p) return;
+        this.pending.delete(msg.id);
+        if(msg.type==='ERROR') p.reject(new Error(String(msg.data)));
+        else p.resolve(msg.data);
+      };
+      this.worker.onerror=(e)=>{
+        const err=new Error('FFmpeg Worker: '+(e.message||'unknown error'));
+        for(const p of this.pending.values()) p.reject(err);
+        this.pending.clear();
+      };
+    }
+    on(type,fn){ if(this.listeners[type]) this.listeners[type].push(fn); }
+    send(type,data,transfer=[]){
+      return new Promise((resolve,reject)=>{
+        const id=this.seq++;
+        this.pending.set(id,{resolve,reject});
+        this.worker.postMessage({id,type,data},transfer);
+      });
+    }
+    load(config){ return this.send('LOAD',config); }
+    exec(args,timeout=-1){ return this.send('EXEC',{args,timeout}); }
+    writeFile(path,data){
+      const bytes=data instanceof Uint8Array?data:new Uint8Array(data);
+      return this.send('WRITE_FILE',{path,data:bytes},[bytes.buffer]);
+    }
+    readFile(path,encoding='binary'){ return this.send('READ_FILE',{path,encoding}); }
+    deleteFile(path){ return this.send('DELETE_FILE',{path}); }
+    listDir(path){ return this.send('LIST_DIR',{path}); }
+  }
+
+  async function fetchAsBlobURL(url,mime){
+    const res=await fetch(url,{cache:'force-cache'});
+    if(!res.ok) throw new Error('Не удалось загрузить FFmpeg: HTTP '+res.status);
+    const buf=await res.arrayBuffer();
+    const u=URL.createObjectURL(new Blob([buf],{type:mime}));
+    alphaCoreBlobURLs.push(u);
+    return u;
+  }
+
+  async function ensureAlphaFFmpeg(){
+    if(alphaFfmpegLoaded && alphaFfmpeg) return alphaFfmpeg;
+
+    $('status').textContent='Первый запуск: загружаю FFmpeg.wasm…';
+    const workerURL=new URL('./ffmpeg-worker.js?v=3',location.href).href;
+    alphaFfmpeg=new LocalAlphaFFmpeg(workerURL);
+
+    alphaFfmpeg.on('log',({message})=>{
+      if(message && /error|failed|unknown encoder/i.test(message)) console.warn('[FFmpeg]',message);
+    });
+
+    const base='https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+    const coreURL=await fetchAsBlobURL(base+'/ffmpeg-core.js','text/javascript');
+    const wasmURL=await fetchAsBlobURL(base+'/ffmpeg-core.wasm','application/wasm');
+    await alphaFfmpeg.load({coreURL,wasmURL});
+
+    alphaFfmpegLoaded=true;
+    $('status').textContent='FFmpeg готов • MOV α можно экспортировать';
+    return alphaFfmpeg;
+  }
+
+  async function wipeAlphaFFmpegFS(ff){
+    try{
+      const entries=await ff.listDir('/');
+      for(const e of entries){
+        if(!e.isDir && e.name!=='.' && e.name!=='..'){
+          try{ await ff.deleteFile('/'+e.name); }catch{}
+        }
+      }
+    }catch{}
+  }
+
+  function alphaMovCommand(codec,fps,out){
+    const base=['-framerate',String(fps),'-i','frame-%05d.png'];
+    if(codec==='prores'){
+      return [...base,'-c:v','prores_ks','-profile:v','4444','-pix_fmt','yuva444p10le',out];
+    }
+    if(codec==='qtrle'){
+      return [...base,'-c:v','qtrle','-pix_fmt','argb',out];
+    }
+    return [...base,'-c:v','png','-pix_fmt','rgba',out];
+  }
+
+  function alphaCodecName(codec){
+    return codec==='prores'?'ProRes 4444':codec==='qtrle'?'qtrle':'PNG MOV';
+  }
+
   function crc32(bytes){
     let table=crc32.table;
     if(!table){
@@ -1093,7 +1201,113 @@
   }
 
   $('exportPngZip').onclick=exportPngSequence;
-  $('openMovConverter').onclick=()=>window.open('./alpha-mov-converter-v2.html?v=2','_blank');
+
+  async function exportAlphaMovDirect(){
+    if(exportInProgress) return;
+    clearPendingExport();
+
+    const btn=$('openMovConverter');
+    const oldBtn=btn.textContent;
+    let ff=null;
+
+    try{
+      exportInProgress=true;
+      setExportUiLocked(true);
+      btn.disabled=false;
+      btn.textContent='🎬 Подготовка…';
+      forcedExportBgMode='transparent';
+
+      ff=await ensureAlphaFFmpeg();
+      await wipeAlphaFFmpegFS(ff);
+
+      let fps=Number($('exportFps').value)||30;
+      fps=Math.min(fps,30); // PNG -> WASM can be very RAM-heavy at 60 FPS.
+      const d=Math.max(1,durationMs());
+      const frameMs=1000/fps;
+      const totalFrames=Math.max(2,Math.ceil(d/frameMs)+1);
+
+      $('status').textContent=`MOV α • рендер кадров 0/${totalFrames}`;
+
+      for(let i=0;i<totalFrames;i++){
+        const t=Math.min(i*frameMs,d);
+        drawAt(t);
+        const blob=await canvasPngBlob();
+        const bytes=new Uint8Array(await blob.arrayBuffer());
+        const name=`frame-${String(i).padStart(5,'0')}.png`;
+        await ff.writeFile(name,bytes);
+
+        const pct=Math.round((i+1)/totalFrames*55);
+        btn.textContent=`🎬 MOV α ${pct}%`;
+        $('status').textContent=`MOV α • кадр ${i+1}/${totalFrames}`;
+        await sleep(0);
+      }
+
+      const requested=$('movCodec')?.value || 'prores';
+      const order=requested==='prores'
+        ? ['prores','qtrle','png']
+        : requested==='qtrle'
+          ? ['qtrle','png','prores']
+          : ['png','qtrle','prores'];
+
+      let used=null;
+      let out=null;
+      for(const codec of order){
+        out=`sprite-effect-alpha-${codec}-${fps}fps.mov`;
+        $('status').textContent=`Кодирую ${alphaCodecName(codec)}…`;
+        btn.textContent=`🎬 ${alphaCodecName(codec)}…`;
+        let code=1;
+        try{
+          code=await ff.exec(alphaMovCommand(codec,fps,out));
+        }catch(err){
+          console.warn('Codec failed',codec,err);
+          code=1;
+        }
+        if(code===0){ used=codec; break; }
+        try{ await ff.deleteFile(out); }catch{}
+      }
+
+      if(!used) throw new Error('Эта браузерная сборка FFmpeg не смогла создать ProRes/qtrle/PNG MOV.');
+
+      const data=await ff.readFile(out);
+      const bytes=data instanceof Uint8Array?data:new Uint8Array(data);
+      const blob=new Blob([bytes],{type:'video/quicktime'});
+      if(blob.size<1000) throw new Error('FFmpeg создал пустой MOV.');
+
+      const file=new File([blob],out,{type:'video/quicktime',lastModified:Date.now()});
+      const url=URL.createObjectURL(blob);
+      pendingExportUrl=url;
+      pendingExport={file,url};
+
+      $('mobileSave').style.display='';
+      $('mobileSave').textContent='💾 Сохранить MOV α';
+      $('status').textContent=`Готово • ${alphaCodecName(used)} • alpha • ${fps} FPS • ${(blob.size/1024/1024).toFixed(1)} МБ`;
+
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=out;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      // Clean frame files after output is safely read to reduce WASM memory usage.
+      try{ await wipeAlphaFFmpegFS(ff); }catch{}
+    }catch(err){
+      console.error(err);
+      alert('Ошибка MOV α: '+(err?.message||err));
+      $('status').textContent='MOV α не удалось экспортировать';
+    }finally{
+      forcedExportBgMode=null;
+      exportInProgress=false;
+      setExportUiLocked(false);
+      btn.textContent=oldBtn;
+      btn.disabled=false;
+      startedAt=performance.now();
+      paused=false;
+      $('pause').textContent='⏸ Пауза';
+    }
+  }
+
+  $('openMovConverter').onclick=exportAlphaMovDirect;
 
     async function exportVideo(target){
     if(exportInProgress) return;
