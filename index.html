@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sprite FX Maker v2.6</title>
+<title>Sprite FX Maker v2.7</title>
 <style>
   :root{
     --bg:#0d0f13; --panel:#161a20; --panel2:#1d222a; --line:#2a313b;
@@ -68,7 +68,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h1>Sprite FX Maker v2.6</h1>
+    <h1>Sprite FX Maker v2.7</h1>
     <div class="sub">Спрайтовые эффекты + пирамиды + разлёт + счётчик/таймер</div>
 
     <div class="group">
@@ -240,7 +240,7 @@
       </div>
       <div class="check"><input id="checker" type="checkbox" checked><label for="checker">Шахматный фон только в предпросмотре</label></div>
       <div class="small">Клик по холсту меняет точку появления/центр пирамиды. Счётчик позиционируется отдельно через X/Y.</div>
-      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.6: добавлен отдельный конвертер PNG ZIP α → MOV с прозрачностью. Поддерживаются ProRes 4444, qtrle и PNG MOV через FFmpeg.wasm.</div>
+      <div class="small" style="margin-top:7px;color:#b8c2d1">v2.7: MOV-конвертер переведён на локальный same-origin Worker без импорта класса FFmpeg с CDN. Это убирает блокировку Worker на GitHub Pages.</div>
     </div>
   </aside>
 
@@ -1093,7 +1093,7 @@
   }
 
   $('exportPngZip').onclick=exportPngSequence;
-  $('openMovConverter').onclick=()=>window.open('./alpha-mov-converter.html','_blank');
+  $('openMovConverter').onclick=()=>window.open('./alpha-mov-converter-v2.html?v=2','_blank');
 
     async function exportVideo(target){
     if(exportInProgress) return;
